@@ -1,0 +1,4 @@
+# dsh-maestro-remote bundle patch — single row for the remote/tunnel plugin.
+- insert:
+    - id: dsh-maestro-remote
+      name: '@ddtcorex/dsh-maestro-remote'
