@@ -16,12 +16,14 @@ Part of the Maestro Harness suite. Host half + client half (settings/slot UI).
 - `src/tunnel.ts` — cloudflared tunnel lifecycle (start/stop/status, reversible via `ctx.effect`).
 - `src/remote-proxy.ts` — the remote proxy handler.
 - `src/cloudflared-fetch.ts` — fetches/installs the `cloudflared` binary.
-- `src/telegram.ts` + `src/telegram-notifier.ts` — Telegram bot + notifications.
+- `src/startup-notify.ts` — schedules the protected "DSH web is ready" update via the optional
+  `maestroNotifier` service (published by `@ddtcorex/dsh-maestro-notifier`); transport only — the
+  message text stays here, delivery goes through the pluggable provider registry.
 - `src/pin-store.ts` — persisted PIN; `src/secure-compare.ts` — constant-time comparison.
 - `src/config-store.ts` — persisted config; `src/skills-tool.ts` — skills helper.
 - `src/augment.d.ts` — local structural types (do NOT import from `deepseek-harness`).
 - Client half — settings + tunnel status UI (injected slots).
-- `tests/remote.test.ts` — vitest suite.
+- `tests/remote.test.ts` + `tests/startup-notify.test.ts` — vitest suites.
 
 ## Development
 
