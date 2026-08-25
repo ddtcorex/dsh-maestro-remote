@@ -6,6 +6,7 @@ import { loadUserConfig, saveUserConfig } from './config-store.js'
 import { readPin, readLanPin } from './pin-store.js'
 import { createRemoteProxy, isPublicHost, lanUrls, type RemoteProxyHandle } from './remote-proxy.js'
 import { resolveCloudflared } from './cloudflared-fetch.js'
+import { scheduleStartupNotification } from './startup-notify.js'
 
 const QUICK_TUNNEL_URL_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i
 
@@ -393,4 +394,15 @@ export function apply(ctx: Context): void {
     reloadConfig: () => bootProxy().then(() => {}),
   }
   ctx.provide('maestroTunnel', tunnelController)
+  // The tunnel owns the startup boundary: once the controller is ready (and only if the
+  // optional notifier plugin is installed), deliver the protected "DSH web is ready" update.
+  scheduleStartupNotification({
+    initialReady: () => tunnelController.initialReady(),
+    loadConfig: () => loadUserConfig(),
+    readPin,
+    proxyStatus: () => tunnelController.proxyStatus(),
+    status: () => tunnelController.status(),
+    notifier: ctx.get?.('maestroNotifier') as import('./startup-notify.js').NotifierLike | undefined,
+    logger: ctx.logger,
+  })
 }
