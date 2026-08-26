@@ -64,5 +64,8 @@ describe('cordis.patch.yml row wiring', () => {
     const yml = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../cordis.patch.yml'), 'utf8');
     expect(yml).toContain("name: '@ddtcorex/dsh-maestro-remote/lib/index.js'");
     expect(yml).toContain("name: '@ddtcorex/dsh-maestro-remote/lib/tunnel.js'");
+    // Rows import deep subpaths, so the exports map must expose ./lib/*.
+    const pkg2 = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8'));
+    expect(pkg2.exports['./lib/*']).toBe('./lib/*');
   });
 });
