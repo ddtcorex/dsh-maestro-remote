@@ -53,6 +53,8 @@ describe('dsh-maestro-remote', () => {
     expect(pkg).not.toBeNull();
     expect(pkg.name).toBe('@ddtcorex/dsh-maestro-remote');
     expect(pkg.dsh.bundle.patch).toBe('./cordis.patch.yml');
-    expect(pkg.dsh.client.inject).toContain('@deepseek-ai/dsh-client-connection');
+    // Host-only today: a dsh.client declaration without an exports['./client']
+    // bundle hard-throws the whole web boot (client-modules index.ts:453).
+    expect(pkg.dsh.client).toBeUndefined();
   });
 });
