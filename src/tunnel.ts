@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { loadUserConfig, saveUserConfig } from './config-store.js'
-import { readPin, readLanPin } from './pin-store.js'
+import { readPin, readLanPin, rotatePin, rotateLanPin } from './pin-store.js'
 import { createRemoteProxy, isPublicHost, lanUrls, type RemoteProxyHandle } from './remote-proxy.js'
 import { resolveCloudflared } from './cloudflared-fetch.js'
 import { scheduleStartupNotification } from './startup-notify.js'
@@ -184,11 +184,30 @@ export interface TunnelController {
   initialReady: () => Promise<void>
   /** Re-read the user config so hostname/PIN changes apply without a restart. */
   reloadConfig: () => Promise<void>
+  /** Current public PIN, generating and persisting one on first read. */
+  getPin: () => Promise<string>
+  /** Generate and persist a fresh public PIN, invalidating the previous one. */
+  rotatePin: () => Promise<string>
+  /** Current LAN PIN (separate file so rotating the public PIN cannot invalidate LAN links). */
+  getLanPin: () => Promise<string>
+  /** Generate and persist a fresh LAN PIN. */
+  rotateLanPin: () => Promise<string>
 }
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    maestroTunnel: { status(): any; start(): Promise<any>; stop(): Promise<any>; proxyStatus(): any; reloadConfig(): Promise<void>; initialReady(): Promise<void> }
+    maestroTunnel: {
+      status(): any
+      start(): Promise<any>
+      stop(): Promise<any>
+      proxyStatus(): any
+      reloadConfig(): Promise<void>
+      initialReady(): Promise<void>
+      getPin(): Promise<string>
+      rotatePin(): Promise<string>
+      getLanPin(): Promise<string>
+      rotateLanPin(): Promise<string>
+    }
   }
 }
 
@@ -392,6 +411,10 @@ export function apply(ctx: Context): void {
     proxyStatus: () => proxyState,
     initialReady: () => initialReady,
     reloadConfig: () => bootProxy().then(() => {}),
+    getPin: () => readPin(),
+    rotatePin: () => rotatePin(),
+    getLanPin: () => readLanPin(),
+    rotateLanPin: () => rotateLanPin(),
   }
   ctx.provide('maestroTunnel', tunnelController)
   // The tunnel owns the startup boundary: once the controller is ready (and only if the
