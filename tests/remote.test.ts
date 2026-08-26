@@ -58,3 +58,11 @@ describe('dsh-maestro-remote', () => {
     expect(pkg.dsh.client).toBeUndefined();
   });
 });
+
+describe('cordis.patch.yml row wiring', () => {
+  it('loads both the rpc entry and the tunnel provider', () => {
+    const yml = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../cordis.patch.yml'), 'utf8');
+    expect(yml).toContain("name: '@ddtcorex/dsh-maestro-remote/lib/index.js'");
+    expect(yml).toContain("name: '@ddtcorex/dsh-maestro-remote/lib/tunnel.js'");
+  });
+});
