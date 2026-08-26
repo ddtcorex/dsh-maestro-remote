@@ -1,7 +1,7 @@
 {
   "name": "@ddtcorex/dsh-maestro-remote",
   "version": "0.1.0",
-  "description": "Maestro remote — tunnel + remote-proxy + PIN + QR for DeepSeek Harness",
+  "description": "Maestro remote \u2014 tunnel + remote-proxy + PIN + QR for DeepSeek Harness",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -40,7 +40,8 @@
   },
   "dependencies": {
     "qrcode": "^1.5.4",
-    "schemastery": "^3.0.0"
+    "schemastery": "^3.0.0",
+    "@ddtcorex/dsh-maestro-config-lib": "link:../dsh-maestro-config-lib"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
