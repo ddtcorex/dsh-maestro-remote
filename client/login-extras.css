@@ -32,6 +32,13 @@ body {
   }
 }
 
+.maestro-login-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
 .maestro-login-copy {
   margin: 0;
   font-size: 14px;
@@ -54,6 +61,52 @@ body {
   letter-spacing: 4px;
   font-size: 16px;
 }
+
+/*
+ * The pre-enhancement fallback form (data-maestro-login-fallback) renders a
+ * bare <input>/<button> — it can't use the Input/Button components, which
+ * are only available inside the React bundle. These mirror Input.module.css
+ * and Button.module.css's primary/md variant so the fallback still looks
+ * like the rest of the design system instead of an unstyled browser default.
+ */
+.maestro-login-native-input {
+  align-items: center;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  box-sizing: border-box;
+}
+
+.maestro-login-native-input:focus-within { border-color: var(--dsw-alias-brand-primary); }
+
+.maestro-login-native-input input {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+}
+
+.maestro-login-native-input input::placeholder { color: var(--dsw-alias-label-dimmed); }
+
+.maestro-login-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 18px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.maestro-login-submit:hover { background: var(--dsw-alias-button-primary-hover); }
 
 .maestro-shake { animation: maestro-shake 0.4s var(--ds-ease-in-out); }
 
