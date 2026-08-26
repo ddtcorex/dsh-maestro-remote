@@ -1,5 +1,7 @@
 node_modules/
 lib/
+client/login.js
+client/login.css
 .DS_Store
 
 # Re-include coordination files ignored by the global core.excludesFile

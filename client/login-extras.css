@@ -1,0 +1,65 @@
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+}
+
+.maestro-login-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: min(360px, calc(100vw - 48px));
+  box-sizing: border-box;
+  padding: 44px 40px 40px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.14);
+}
+
+@media (max-width: 400px) {
+  .maestro-login-card {
+    padding: 32px 20px 28px;
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
+    margin-bottom: max(0px, env(safe-area-inset-bottom));
+  }
+}
+
+.maestro-login-copy {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.maestro-login-error { color: var(--dsw-alias-state-error-primary); }
+
+.maestro-login-input {
+  display: flex;
+  width: min(220px, 100%);
+}
+
+.maestro-login-input > span { flex: 1; min-width: 0; }
+
+.maestro-login-input input {
+  text-align: center;
+  letter-spacing: 4px;
+  font-size: 16px;
+}
+
+.maestro-shake { animation: maestro-shake 0.4s var(--ds-ease-in-out); }
+
+@keyframes maestro-shake {
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(3px); }
+}

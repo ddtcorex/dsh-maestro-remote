@@ -171,7 +171,16 @@ const LOGIN_PAGE = (error: boolean) => `<!doctype html><html lang="en"><head>
 <title>Maestro access</title>
 <link rel="stylesheet" href="/__maestro/login.css">
 <script>window.__MAESTRO_LOGIN_ERROR__=${error ? 'true' : 'false'}</script>
-</head><body><div id="maestro-login-root"></div><script src="/__maestro/login.js"></script></body></html>`
+</head><body><main>
+<form data-maestro-login-fallback method="post" action="/maestro-login">
+<h1>Maestro access</h1>
+<p>${error ? 'Wrong PIN, try again.' : 'This public address is PIN-protected.'}</p>
+<label for="maestro-login-token">Access PIN</label>
+<input id="maestro-login-token" name="token" inputmode="numeric" maxlength="8" required autocomplete="one-time-code">
+<button type="submit">Enter</button>
+</form>
+<div id="maestro-login-root"></div>
+</main><script src="/__maestro/login.js"></script></body></html>`
 
 /**
  * Local reverse proxy in front of dsh web: rewrites Host/Origin to the loopback
