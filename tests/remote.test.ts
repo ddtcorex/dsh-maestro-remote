@@ -135,6 +135,13 @@ describe('remote login page', () => {
       expect(page.body).toContain('<form');
       expect(page.body).toContain('action="/maestro-login"');
       expect(page.body).toContain('name="token"');
+      // Same design-system look as the enhanced React form, not a bare
+      // browser-default input/button — see login-extras.css.
+      expect(page.body).toContain('class="maestro-login-card"');
+      expect(page.body).toContain('class="maestro-login-submit"');
+      // Dark mode is applied via body[data-ds-dark-theme], set by JS — without
+      // this inline script the fallback would always render light-themed.
+      expect(page.body).toContain("matchMedia('(prefers-color-scheme: dark)')");
     } finally {
       await proxy.close();
     }

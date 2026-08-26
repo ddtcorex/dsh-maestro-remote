@@ -171,13 +171,12 @@ const LOGIN_PAGE = (error: boolean) => `<!doctype html><html lang="en"><head>
 <title>Maestro access</title>
 <link rel="stylesheet" href="/__maestro/login.css">
 <script>window.__MAESTRO_LOGIN_ERROR__=${error ? 'true' : 'false'}</script>
-</head><body><main>
-<form data-maestro-login-fallback method="post" action="/maestro-login">
-<h1>Maestro access</h1>
-<p>${error ? 'Wrong PIN, try again.' : 'This public address is PIN-protected.'}</p>
-<label for="maestro-login-token">Access PIN</label>
-<input id="maestro-login-token" name="token" inputmode="numeric" maxlength="8" required autocomplete="one-time-code">
-<button type="submit">Enter</button>
+</head><body><script>if(matchMedia('(prefers-color-scheme: dark)').matches)document.body.setAttribute('data-ds-dark-theme','')</script><main>
+<form data-maestro-login-fallback method="post" action="/maestro-login" class="maestro-login-card${error ? ' maestro-shake' : ''}">
+<p class="maestro-login-title">Maestro access</p>
+<p class="maestro-login-copy${error ? ' maestro-login-error' : ''}">${error ? 'Wrong PIN, try again.' : 'This public address is PIN-protected.'}</p>
+<span class="maestro-login-input maestro-login-native-input"><input id="maestro-login-token" name="token" inputmode="numeric" maxlength="8" autofocus required aria-label="Access PIN" placeholder="8-digit PIN" autocomplete="one-time-code"></span>
+<button type="submit" class="maestro-login-submit">Enter</button>
 </form>
 <div id="maestro-login-root"></div>
 </main><script src="/__maestro/login.js"></script></body></html>`
