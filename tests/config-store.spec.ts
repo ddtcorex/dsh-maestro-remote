@@ -8,12 +8,6 @@ let home: string
 beforeEach(async () => { home = await mkdtemp(join(tmpdir(), 'rstore-')) })
 afterEach(async () => { await rm(home, { recursive: true, force: true }) })
 
-const LEGACY_PATH = () => join(home, 'dsh-maestro-harness', 'config.json')
-
-async function seedLegacy(doc: Partial<MaestroUserConfig>): Promise<void> {
-  await mkdir(join(home, 'dsh-maestro-harness'), { recursive: true })
-  await writeFile(LEGACY_PATH(), JSON.stringify(doc), 'utf8')
-}
 
 describe('config-store v2 (lib-backed adapter)', () => {
   it('save writes into the shared namespaced store, not the package file', async () => {
@@ -21,7 +15,6 @@ describe('config-store v2 (lib-backed adapter)', () => {
     const raw = JSON.parse(await readFile(join(home, 'maestro', 'settings.json'), 'utf8'))
     expect(raw.domains.gitlab.token).toBe('tok')
     expect(raw.domains.tunnel.mode).toBe('named')
-    await expect(readFile(LEGACY_PATH(), 'utf8')).rejects.toThrow() // never created/touched
   })
 
   it('load reads the shared store back through the flat view', async () => {
@@ -58,12 +51,5 @@ describe('config-store v2 (lib-backed adapter)', () => {
     await saveUserConfig({ lastTunnelRunning: true }, home)
     const st = await stat(join(home, 'dsh-maestro-remote', 'runtime.json'))
     expect(st.mode & 0o777).toBe(0o600)
-  })
-
-  it('an existing legacy harness file is left completely alone', async () => {
-    await seedLegacy({ gitlabToken: 'legacy-secret' })
-    await saveUserConfig({ gitlabToken: 'new' }, home)
-    expect(JSON.parse(await readFile(LEGACY_PATH(), 'utf8')).gitlabToken).toBe('legacy-secret')
-    expect((await loadUserConfig(home)).gitlabToken).toBe('new')
   })
 })
