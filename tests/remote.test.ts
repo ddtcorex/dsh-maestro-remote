@@ -32,6 +32,20 @@ async function buildClientAssets(): Promise<void> {
   if (existsSync(builder)) await execFileAsync(process.execPath, [builder], { cwd: packageRoot });
 }
 
+/** Mirrors build.mjs's own ancestor search: null where no DSH checkout sits beside the package (e.g. CI). */
+function findDeepseekHarness(startDir: string): string | null {
+  let dir = startDir;
+  for (;;) {
+    const candidate = resolve(dir, 'deepseek-harness');
+    if (existsSync(resolve(candidate, 'package.json'))) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+const dshRepo = findDeepseekHarness(packageRoot);
+
 function findPatch(): string {
   const candidates = [
     'packages/dsh-maestro-remote/cordis.patch.yml',
@@ -131,9 +145,16 @@ describe('remote login page', () => {
     proxy = await startProxy();
     try {
       const js = await get(proxy.port, '/__maestro/login.js', { host: 'public.example.com' });
+      const css = await get(proxy.port, '/__maestro/login.css', { host: 'public.example.com' });
+      if (dshRepo === null) {
+        // No DeepSeek Harness checkout in this environment (e.g. CI): the
+        // builder skips and the assets 404 — the native fallback form covers it.
+        expect(js.status).toBe(404);
+        expect(css.status).toBe(404);
+        return;
+      }
       expect(js.status).toBe(200);
       expect(js.body.length).toBeGreaterThan(0);
-      const css = await get(proxy.port, '/__maestro/login.css', { host: 'public.example.com' });
       expect(css.status).toBe(200);
       expect(css.body.length).toBeGreaterThan(0);
     } finally {
@@ -141,7 +162,10 @@ describe('remote login page', () => {
     }
   });
 
-  it('builds login assets from a normal package checkout without DSH_REPO', async () => {
+  // Only meaningful where a real DeepSeek Harness checkout sits beside the
+  // package (the maestro-harness workspace) — CI and a standalone clone have
+  // nothing for the ancestor search to find.
+  it.skipIf(dshRepo === null)('builds login assets from a normal package checkout without DSH_REPO', async () => {
     const workspace = await mkdtemp(resolve(tmpdir(), 'maestro-remote-build-'));
     const normalPackage = resolve(workspace, 'packages/dsh-maestro-remote');
     try {
@@ -149,7 +173,7 @@ describe('remote login page', () => {
       await cp(resolve(packageRoot, 'client'), resolve(normalPackage, 'client'), { recursive: true });
       await cp(resolve(packageRoot, 'package.json'), resolve(normalPackage, 'package.json'));
       await symlink(resolve(packageRoot, 'node_modules'), resolve(normalPackage, 'node_modules'), 'dir');
-      await symlink(resolve(packageRoot, '../../../../deepseek-harness'), resolve(workspace, 'deepseek-harness'), 'dir');
+      await symlink(resolve(packageRoot, '../../deepseek-harness'), resolve(workspace, 'deepseek-harness'), 'dir');
 
       await execFileAsync(process.execPath, [resolve(normalPackage, 'client/build.mjs')], {
         cwd: normalPackage,

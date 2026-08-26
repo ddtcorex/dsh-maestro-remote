@@ -17,10 +17,18 @@ function resolveDshRepo() {
     if (parent === workspaceRoot) break
     workspaceRoot = parent
   }
-  throw new Error(`login bundle: cannot find the DeepSeek Harness checkout — set DSH_REPO (searched ancestors of ${packageRoot})`)
+  return null
 }
 
 const dshRepo = resolveDshRepo()
+if (dshRepo === null) {
+  // CI and a standalone clone of this repo have no DeepSeek Harness checkout
+  // to bundle from. Skip rather than fail the build: the server-rendered
+  // native PIN form still works without this bundle, so publishing without
+  // it degrades gracefully instead of blank-paging.
+  console.warn(`login bundle: skipping — cannot find the DeepSeek Harness checkout (searched ancestors of ${packageRoot}); set DSH_REPO to build for real`)
+  process.exit(0)
+}
 const clientSource = (...parts) => join(dshRepo, 'packages/client', ...parts)
 
 await build({
