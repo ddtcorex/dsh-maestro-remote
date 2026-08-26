@@ -1,4 +1,10 @@
-# dsh-maestro-remote bundle patch — single row for the remote/tunnel plugin.
+# dsh-maestro-remote bundle patch — two rows:
+#   maestro-remote-rpc     loopback RPC stub (status endpoint)
+#   maestro-tunnel         the real provider: cloudflared tunnel + LAN proxy
+#                          + PIN auth + startup notification (provides
+#                          service 'maestroTunnel' consumed by review)
 - insert:
-    - id: dsh-maestro-remote
-      name: '@ddtcorex/dsh-maestro-remote'
+    - id: dsh-maestro-remote-rpc
+      name: '@ddtcorex/dsh-maestro-remote/lib/index.js'
+    - id: dsh-maestro-tunnel
+      name: '@ddtcorex/dsh-maestro-remote/lib/tunnel.js'
