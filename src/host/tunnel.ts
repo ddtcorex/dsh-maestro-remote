@@ -124,20 +124,14 @@ export interface NamedTunnelConfigParams {
   tunnelId: string
   credentialsFile: string
   hostname: string
-  webhookPort: number
-  /** Public traffic that is not `/hooks/*` lands on the remote-access proxy. */
-  proxyPort: number
+  proxyPort: number // webServer.port — single ingress
+  // webhookPort?: number // deprecated, ignored if present
 }
-
-/** Generate a local cloudflared config.yml routing /hooks/* to the webhook port, everything else to the remote-access proxy. */
 export async function writeNamedTunnelConfig(params: NamedTunnelConfigParams): Promise<string> {
   const path = join(params.dshHome, 'dsh-maestro-remote', 'cloudflared-config.yml')
   const content = `tunnel: ${params.tunnelId}
 credentials-file: ${params.credentialsFile}
 ingress:
-  - hostname: ${params.hostname}
-    path: ^/hooks/.*
-    service: http://127.0.0.1:${params.webhookPort}
   - hostname: ${params.hostname}
     service: http://127.0.0.1:${params.proxyPort}
   - service: http_status:404
@@ -338,7 +332,7 @@ export function apply(ctx: Context): void {
       status = { running: false, mode, phase: 'starting' }
       try {
         if (mode === 'quick') {
-          const target = userConfig.quickTarget === 'webhook' ? (userConfig.webhookPort ?? 3000) : (ctx as any).webServer.port
+          const target = (ctx as any).webServer.port
           const handle = await startQuickTunnel({
             port: target,
             home: process.env.DSH_HOME,
@@ -360,7 +354,6 @@ export function apply(ctx: Context): void {
             tunnelId: userConfig.tunnelId,
             credentialsFile: userConfig.tunnelCredentialsFile,
             hostname: userConfig.tunnelHostname,
-            webhookPort: userConfig.webhookPort ?? 3000,
             proxyPort,
           })
           const handle = startNamedTunnel({ configPath, tunnelId: userConfig.tunnelId })
