@@ -15,7 +15,7 @@ function makeDeps(overrides: Partial<StartupNotifyDependencies> = {}): StartupNo
   }
 }
 
-const EXPECTED_TEXT = '<b>🚀 DSH Web is Ready</b>\n\n<b>🔑 PIN:</b> <code>81117443</code>\n<b>🔐 Token:</b> <code>tok-abc123</code>\n\n<b>🌐 Public URL:</b> https://dsh.example.com\n<b>🔗 Full URL:</b> <a href="https://dsh.example.com?pin=81117443&amp;token=tok-abc123">https://dsh.example.com?pin=81117443&amp;token=tok-abc123</a>\n<i>Tap PIN/Token to copy • Full URL opens directly in iOS PWA</i>\n\n<b>🏠 LAN:</b> http://192.168.1.20:3081'
+const EXPECTED_TEXT = '<b>🚀 DSH Web is Ready</b>\n\n<b>🔑 PIN:</b> <code>81117443</code>\n\n<b>🌐 Public URL:</b> https://dsh.example.com\n\n<b>🏠 LAN:</b> http://192.168.1.20:3081'
 
 describe('scheduleStartupNotification', () => {
   it('waits for initialReady, then sends the telegram target and startup text without leaking credentials to logs', async () => {

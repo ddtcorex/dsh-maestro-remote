@@ -42,11 +42,10 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return out
 }
 
-/** Whether the request carries the current PIN via session cookie or `?pin=` fallback. */
+/** Whether the request carries the current PIN via session cookie (form login only; `?pin=` removed). */
 export function isPinAuthorized(req: PinRequestFacts, pin: string): boolean {
   const cookiePin = parseCookies(req.headers.cookie)['maestro_pin']
-  if (secretsMatch(cookiePin, pin)) return true
-  return secretsMatch(new URL(req.url, 'http://x').searchParams.get('pin') ?? undefined, pin)
+  return secretsMatch(cookiePin, pin)
 }
 
 /** Rewrite browser-visible authorities to the loopback upstream so DSH's /api fence sees loopback. */
@@ -134,6 +133,13 @@ export interface RemoteProxyOptions {
    * 10 minutes; a fixed security default, overridable only by tests.
    */
   loginRateLimit?: LoginRateLimit
+  /**
+   * PIN-only UX: after a valid maestro_pin, the proxy mints the DSH
+   * BrowserAuth cookie on the user's behalf so the Web UI never shows
+   * the ?token= exchange. The upstream token is read via
+   * ctx.connection.authenticatedUrl().
+   */
+  getDshToken?: () => Promise<string | undefined>
 }
 
 export interface LoginRateLimit { maxFailures: number; windowMs: number }
@@ -175,7 +181,7 @@ const LOGIN_PAGE = (error: boolean) => `<!doctype html><html lang="en"><head>
 <form data-maestro-login-fallback method="post" action="/maestro-login" class="maestro-login-card${error ? ' maestro-shake' : ''}">
 <p class="maestro-login-title">Maestro access</p>
 <p class="maestro-login-copy${error ? ' maestro-login-error' : ''}">${error ? 'Wrong PIN, try again.' : 'This public address is PIN-protected.'}</p>
-<span class="maestro-login-input maestro-login-native-input"><input id="maestro-login-token" name="token" inputmode="numeric" maxlength="8" autofocus required aria-label="Access PIN" placeholder="8-digit PIN" autocomplete="one-time-code"></span>
+<span class="maestro-login-input maestro-login-native-input"><input id="maestro-login-pin" name="pin" inputmode="numeric" maxlength="8" autofocus required aria-label="Access PIN" placeholder="8-digit PIN" autocomplete="one-time-code"></span>
 <button type="submit" class="maestro-login-submit">Enter</button>
 </form>
 <div id="maestro-login-root"></div>
@@ -275,7 +281,8 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
       res.end('Too many failed PIN attempts — try again later.')
       return
     }
-    const submitted = new URLSearchParams(await collectBody(req)).get('token') ?? ''
+    const params = new URLSearchParams(await collectBody(req))
+    const submitted = params.get('pin') ?? params.get('token') ?? ''
     const pin = await auth.getPin()
     if (secretsMatch(submitted, pin)) {
       clearLoginFailures(remoteAddress)
@@ -433,15 +440,38 @@ async function compressIfEligible(
     upstreamRes.on('error', () => res.destroy())
   }
 
+  function hasDshAuthCookie(req: IncomingMessage): boolean {
+    const cookie = String(req.headers.cookie ?? '')
+    return cookie.includes('dsh-auth-')
+  }
+
+  async function maybeInjectDshToken(req: IncomingMessage): Promise<string> {
+    const rawUrl = req.url ?? '/'
+    if (options.getDshToken === undefined) return rawUrl
+    if (hasDshAuthCookie(req)) return rawUrl
+    // Only for index HTML where BrowserAuth expects ?token= — API already
+    // gated by cookie; other assets are public.
+    const parsed = new URL(rawUrl, 'http://proxy')
+    if (parsed.pathname !== '/' && parsed.pathname !== '/index.html') return rawUrl
+    if (parsed.searchParams.has('token')) return rawUrl
+    const token = await options.getDshToken()
+    if (!token) return rawUrl
+    parsed.searchParams.set('token', token)
+    return parsed.pathname + parsed.search + parsed.hash
+  }
+
   function proxyRequest(req: IncomingMessage, res: ServerResponse): void {
-    const headers: Record<string, string | string[] | undefined> = { ...req.headers }
-    loopbackAuthority(headers, upstream)
-    const upstreamReq = httpRequest({ host: upstream.host, port: upstream.port, method: req.method, path: req.url, headers }, (upstreamRes) => { void handleUpstreamResponse(req, upstreamRes, res) })
-    upstreamReq.on('error', () => {
-      if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
-      res.end('remote-proxy: cannot reach dsh web — start dsh web first')
-    })
-    req.pipe(upstreamReq)
+    void (async () => {
+      const headers: Record<string, string | string[] | undefined> = { ...req.headers }
+      loopbackAuthority(headers, upstream)
+      const url = await maybeInjectDshToken(req)
+      const upstreamReq = httpRequest({ host: upstream.host, port: upstream.port, method: req.method, path: url, headers }, (upstreamRes) => { void handleUpstreamResponse(req, upstreamRes, res) })
+      upstreamReq.on('error', () => {
+        if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
+        res.end('remote-proxy: cannot reach dsh web — start dsh web first')
+      })
+      req.pipe(upstreamReq)
+    })()
   }
 
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {

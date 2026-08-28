@@ -245,6 +245,34 @@ export function apply(ctx: Context): void {
   /** Aborts an in-flight start; stop() uses this so a half-started tunnel dies. */
   let startAbort: AbortController | undefined
 
+  async function readDshToken(): Promise<string | undefined> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const conn = (ctx as any).connection as { authenticatedUrl?: (url: string) => string } | undefined
+        if (conn?.authenticatedUrl !== undefined) {
+          const url = conn.authenticatedUrl('http://127.0.0.1:3080')
+          const t = new URL(url).searchParams.get('token')
+          if (t) return t
+        }
+      } catch {}
+      if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    try {
+      const candidates = [
+        join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'dsh-web.log'),
+        process.env.DSH_RESTART_LOG ?? '/tmp/dsh-web-restart.log',
+      ]
+      for (const p of candidates) {
+        try {
+          const content = await readFile(p, 'utf8')
+          const m = content.match(/token=([A-Za-z0-9._-]+)/)
+          if (m?.[1]) return m[1]
+        } catch {}
+      }
+    } catch {}
+    return undefined
+  }
+
   async function bootProxy(): Promise<void> {
     // Close the previous listener first: a changed LAN-PIN gate must take over
     // the same port instead of leaking the old, ungated listener beside the new one.
@@ -269,6 +297,7 @@ export function apply(ctx: Context): void {
             // page and cookie flow are shared with the public PIN gate.
             ...(bootConfig.lanPinEnabled === true ? { getLanPin: () => readLanPin() } : {}),
           },
+          getDshToken: readDshToken,
         })
         proxy = handle
         if (candidate !== requestedPort) {
@@ -426,39 +455,6 @@ export function apply(ctx: Context): void {
     initialReady: () => tunnelController.initialReady(),
     loadConfig: () => loadUserConfig(),
     readPin,
-    readToken: async () => {
-      // Primary: live connection service (same launchToken as the printed URL).
-      // `connection` is deliberately not in this plugin's `inject` (see the
-      // comment on `inject` above), so it may not be registered yet the first
-      // time this runs -- retry briefly instead of racing straight to the
-      // log-file fallback, which reads output this same process is writing.
-      for (let attempt = 0; attempt < 5; attempt++) {
-        try {
-          const conn = (ctx as any).connection as { authenticatedUrl?: (url: string) => string } | undefined
-          if (conn?.authenticatedUrl !== undefined) {
-            const url = conn.authenticatedUrl('http://127.0.0.1:3080')
-            const t = new URL(url).searchParams.get('token')
-            if (t) return t
-          }
-        } catch {}
-        if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 200))
-      }
-      // Fallback: token printed to dsh-web log (covers service-order race)
-      try {
-        const candidates = [
-          join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'dsh-web.log'),
-          process.env.DSH_RESTART_LOG ?? '/tmp/dsh-web-restart.log',
-        ]
-        for (const p of candidates) {
-          try {
-            const content = await readFile(p, 'utf8')
-            const m = content.match(/token=([A-Za-z0-9._-]+)/)
-            if (m?.[1]) return m[1]
-          } catch {}
-        }
-      } catch {}
-      return undefined
-    },
     proxyStatus: () => tunnelController.proxyStatus(),
     status: () => tunnelController.status(),
     notifier: () => ctx.get?.('maestroNotifier') as import('./startup-notify.js').NotifierLike | undefined,
