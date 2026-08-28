@@ -1,8 +1,7 @@
 declare module '@deepseek-ai/dsh-host-webserver' {}
-declare module '@deepseek-ai/dsh-client-connection' {}
 declare module '@deepseek-ai/dsh-client-ui-slots' {}
 declare module '@deepseek-ai/dsh-client-ui-settings' {}
-declare module '@deepseek-ai/dsh-host-apiproxy/api' {
+declare module '@deepseek-ai/dsh-client-connection' {
   export type RpcResult<T> = { ok: true; value: T } | { ok: false; error: any }
   export type RpcErrorDetailsMap = { 'bad-request': { issues: any[] } }
 }
