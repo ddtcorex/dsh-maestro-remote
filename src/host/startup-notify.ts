@@ -58,6 +58,24 @@ function startupText({ pin, proxy, tunnel }: {
 /** Send one optional, protected startup update after the tunnel reaches its ready boundary. Never throws. */
 export function scheduleStartupNotification(dependencies: StartupNotifyDependencies): void {
   void dependencies.initialReady().then(async () => {
+    // Dedupe across fiber reloads in the same process: Cordis may re-apply
+    // maestro-tunnel multiple times during a crash loop (e.g. EADDRINUSE on
+    // review webhook). Without this guard each reload schedules another .then
+    // that fires after its own initialReady resolves, producing N duplicate
+    // Telegram messages for N reloads. Use a process-global flag so all
+    // fibers in this Node process share the same sentinel.
+    const g = globalThis as unknown as { __maestroStartupNotified?: number }
+    const now = Date.now()
+    if (g.__maestroStartupNotified !== undefined && now - g.__maestroStartupNotified < 60_000) {
+      dependencies.logger?.info?.('maestro-telegram: startup notification skipped (deduped)')
+      return
+    }
+    g.__maestroStartupNotified = now
+    // Debug trace for "gửi 2 messages" investigation — append to /tmp for post-restart inspection
+    try {
+      const { appendFileSync } = await import('node:fs')
+      appendFileSync('/tmp/telegram-startup-trace.log', `${new Date().toISOString()} pid=${process.pid} scheduleStartupNotification firing\n`)
+    } catch {}
     const raw = dependencies.notifier
     const notifier = typeof raw === 'function' ? (raw as () => NotifierLike | undefined)() : raw
     if (notifier === undefined) return
