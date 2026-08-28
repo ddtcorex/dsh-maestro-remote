@@ -423,9 +423,19 @@ export function apply(ctx: Context): void {
     initialReady: () => tunnelController.initialReady(),
     loadConfig: () => loadUserConfig(),
     readPin,
+    readToken: async () => {
+      try {
+        const conn = (ctx as any).connection as { authenticatedUrl?: (url: string) => string } | undefined
+        if (conn?.authenticatedUrl === undefined) return undefined
+        const url = conn.authenticatedUrl('http://127.0.0.1:3080')
+        return new URL(url).searchParams.get('token') ?? undefined
+      } catch {
+        return undefined
+      }
+    },
     proxyStatus: () => tunnelController.proxyStatus(),
     status: () => tunnelController.status(),
-    notifier: ctx.get?.('maestroNotifier') as import('./startup-notify.js').NotifierLike | undefined,
+    notifier: () => ctx.get?.('maestroNotifier') as import('./startup-notify.js').NotifierLike | undefined,
     logger: ctx.logger,
   })
 }

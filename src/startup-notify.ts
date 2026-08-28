@@ -18,40 +18,69 @@ export interface StartupNotifyDependencies {
   initialReady: () => Promise<void>
   loadConfig: () => Promise<{ telegramBotToken?: string; telegramChatId?: string }>
   readPin: () => Promise<string>
+  readToken?: () => Promise<string | undefined>
   proxyStatus: () => { running: boolean; lanUrls: string[]; errorMessage?: string }
   status: () => { running: boolean; publicUrl?: string; errorMessage?: string }
-  /** Optional notifier service; when absent the startup update is skipped entirely. */
-  notifier?: NotifierLike
+  /** Optional notifier service; when absent the startup update is skipped entirely. May be a lazy provider to handle service registration order. */
+  notifier?: NotifierLike | (() => NotifierLike | undefined)
   logger?: { info?: (...args: any[]) => void; warn?: (...args: any[]) => void }
 }
 
-function startupText({ pin, proxy, tunnel }: {
+function escapeHtml(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
+}
+
+function startupText({ pin, token, proxy, tunnel }: {
   pin: string
+  token?: string
   proxy: { running: boolean; lanUrls: string[]; errorMessage?: string }
   tunnel: { running: boolean; publicUrl?: string; errorMessage?: string }
 }): string {
-  const lines = ['DSH web is ready', `Public access PIN: ${pin}`]
-  if (tunnel.running && tunnel.publicUrl !== undefined) lines.push(`Public URL: ${tunnel.publicUrl}`)
-  else if (tunnel.errorMessage !== undefined) lines.push(`Tunnel: ${tunnel.errorMessage}`)
-  else lines.push('Tunnel: not running')
-  if (proxy.running && proxy.lanUrls.length > 0) lines.push(`LAN: ${proxy.lanUrls.join(', ')}`)
-  else if (proxy.errorMessage !== undefined) lines.push(`Proxy: ${proxy.errorMessage}`)
-  else lines.push('Proxy: not running')
+  const pinEsc = escapeHtml(pin)
+  const tokenEsc = token !== undefined ? escapeHtml(token) : undefined
+  const lines: string[] = []
+  lines.push('<b>🚀 DSH Web is Ready</b>')
+  lines.push('')
+  lines.push(`<b>🔑 PIN:</b> <code>${pinEsc}</code>`)
+  if (tokenEsc !== undefined) lines.push(`<b>🔐 Token:</b> <code>${tokenEsc}</code>`)
+  lines.push('')
+  if (tunnel.running && tunnel.publicUrl !== undefined) {
+    const urlEsc = escapeHtml(tunnel.publicUrl)
+    lines.push(`<b>🌐 Public URL:</b> ${urlEsc}`)
+    if (tokenEsc !== undefined) {
+      const sep = tunnel.publicUrl.includes('?') ? '&' : '?'
+      const full = `${tunnel.publicUrl}${sep}pin=${pin}&token=${token}`
+      const fullEsc = escapeHtml(full)
+      lines.push(`<b>🔗 Full URL:</b> <a href="${fullEsc}">${fullEsc}</a>`)
+      lines.push(`<i>Tap PIN/Token to copy • Full URL opens directly in iOS PWA</i>`)
+    }
+  } else if (tunnel.errorMessage !== undefined) lines.push(`<b>⚠️ Tunnel:</b> ${escapeHtml(tunnel.errorMessage)}`)
+  else lines.push('<b>⚠️ Tunnel:</b> not running')
+  lines.push('')
+  if (proxy.running && proxy.lanUrls.length > 0) {
+    const lanEsc = proxy.lanUrls.map(l => escapeHtml(l)).join(', ')
+    lines.push(`<b>🏠 LAN:</b> ${lanEsc}`)
+  } else if (proxy.errorMessage !== undefined) lines.push(`<b>⚠️ Proxy:</b> ${escapeHtml(proxy.errorMessage)}`)
+  else lines.push('<b>⚠️ Proxy:</b> not running')
   return lines.join('\n')
 }
 
 /** Send one optional, protected startup update after the tunnel reaches its ready boundary. Never throws. */
 export function scheduleStartupNotification(dependencies: StartupNotifyDependencies): void {
   void dependencies.initialReady().then(async () => {
-    const notifier = dependencies.notifier
+    const raw = dependencies.notifier
+    const notifier = typeof raw === 'function' ? (raw as () => NotifierLike | undefined)() : raw
     if (notifier === undefined) return
     const config = await dependencies.loadConfig()
+    const pin = await dependencies.readPin()
+    const token = await dependencies.readToken?.()
     const delivery = await notifier.send(
       'telegram',
       { botToken: config.telegramBotToken, chatId: config.telegramChatId },
       {
         text: startupText({
-          pin: await dependencies.readPin(),
+          pin,
+          token,
           proxy: dependencies.proxyStatus(),
           tunnel: dependencies.status(),
         }),
