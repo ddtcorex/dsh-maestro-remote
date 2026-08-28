@@ -58,7 +58,7 @@ describe('maestroTunnel PIN passthrough', () => {
       expect(rotated).toMatch(/^\d{8}$/);
       expect(rotated).not.toBe(initial);
       // Persisted, not just returned — the proxy reads this same file on every request.
-      const onDisk = (await readFile(join(home, 'dsh-maestro-remote', 'token'), 'utf-8')).trim();
+      const onDisk = (await readFile(join(home, 'dsh-maestro-remote', 'pin'), 'utf-8')).trim();
       expect(onDisk).toBe(rotated);
 
       const readBack = await tunnel.getPin();
@@ -77,7 +77,7 @@ describe('maestroTunnel PIN passthrough', () => {
 
       const rotated = await tunnel.rotateLanPin();
       expect(rotated).toMatch(/^\d{8}$/);
-      const onDisk = (await readFile(join(home, 'dsh-maestro-remote', 'token-lan'), 'utf-8')).trim();
+      const onDisk = (await readFile(join(home, 'dsh-maestro-remote', 'pin-lan'), 'utf-8')).trim();
       expect(onDisk).toBe(rotated);
 
       // Rotating the LAN PIN must not disturb the public PIN file.

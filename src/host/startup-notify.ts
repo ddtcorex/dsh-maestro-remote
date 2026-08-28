@@ -30,30 +30,20 @@ function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
 }
 
-function startupText({ pin, token, proxy, tunnel }: {
+function startupText({ pin, proxy, tunnel }: {
   pin: string
-  token?: string
   proxy: { running: boolean; lanUrls: string[]; errorMessage?: string }
   tunnel: { running: boolean; publicUrl?: string; errorMessage?: string }
 }): string {
   const pinEsc = escapeHtml(pin)
-  const tokenEsc = token !== undefined ? escapeHtml(token) : undefined
   const lines: string[] = []
   lines.push('<b>🚀 DSH Web is Ready</b>')
   lines.push('')
   lines.push(`<b>🔑 PIN:</b> <code>${pinEsc}</code>`)
-  if (tokenEsc !== undefined) lines.push(`<b>🔐 Token:</b> <code>${tokenEsc}</code>`)
   lines.push('')
   if (tunnel.running && tunnel.publicUrl !== undefined) {
     const urlEsc = escapeHtml(tunnel.publicUrl)
     lines.push(`<b>🌐 Public URL:</b> ${urlEsc}`)
-    if (tokenEsc !== undefined) {
-      const sep = tunnel.publicUrl.includes('?') ? '&' : '?'
-      const full = `${tunnel.publicUrl}${sep}pin=${pin}&token=${token}`
-      const fullEsc = escapeHtml(full)
-      lines.push(`<b>🔗 Full URL:</b> <a href="${fullEsc}">${fullEsc}</a>`)
-      lines.push(`<i>Tap PIN/Token to copy • Full URL opens directly in iOS PWA</i>`)
-    }
   } else if (tunnel.errorMessage !== undefined) lines.push(`<b>⚠️ Tunnel:</b> ${escapeHtml(tunnel.errorMessage)}`)
   else lines.push('<b>⚠️ Tunnel:</b> not running')
   lines.push('')
@@ -73,14 +63,12 @@ export function scheduleStartupNotification(dependencies: StartupNotifyDependenc
     if (notifier === undefined) return
     const config = await dependencies.loadConfig()
     const pin = await dependencies.readPin()
-    const token = await dependencies.readToken?.()
     const delivery = await notifier.send(
       'telegram',
       { botToken: config.telegramBotToken, chatId: config.telegramChatId },
       {
         text: startupText({
           pin,
-          token,
           proxy: dependencies.proxyStatus(),
           tunnel: dependencies.status(),
         }),

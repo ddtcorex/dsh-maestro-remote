@@ -139,7 +139,7 @@ describe('remote login page', () => {
       const page = await get(proxy.port, '/', { host: 'public.example.com', accept: 'text/html' });
       expect(page.body).toContain('<form');
       expect(page.body).toContain('action="/maestro-login"');
-      expect(page.body).toContain('name="token"');
+      expect(page.body).toContain('name="pin"');
       // Same design-system look as the enhanced React form, not a bare
       // browser-default input/button — see login-extras.css.
       expect(page.body).toContain('class="maestro-login-card"');
