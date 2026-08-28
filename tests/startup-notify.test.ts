@@ -6,6 +6,7 @@ function makeDeps(overrides: Partial<StartupNotifyDependencies> = {}): StartupNo
     initialReady: vi.fn().mockResolvedValue(undefined),
     loadConfig: vi.fn().mockResolvedValue({ telegramBotToken: 'bot-token', telegramChatId: '-1001234567890' }),
     readPin: vi.fn().mockResolvedValue('81117443'),
+    readToken: vi.fn().mockResolvedValue('tok-abc123'),
     proxyStatus: () => ({ running: true, port: 3081, lanUrls: ['http://192.168.1.20:3081'] }),
     status: () => ({ running: true, publicUrl: 'https://dsh.example.com', phase: 'ready' }),
     notifier: { send: vi.fn().mockResolvedValue({ sent: true }) },
@@ -14,7 +15,7 @@ function makeDeps(overrides: Partial<StartupNotifyDependencies> = {}): StartupNo
   }
 }
 
-const EXPECTED_TEXT = 'DSH web is ready\nPublic access PIN: 81117443\nPublic URL: https://dsh.example.com\nLAN: http://192.168.1.20:3081'
+const EXPECTED_TEXT = '<b>🚀 DSH Web is Ready</b>\n\n<b>🔑 PIN:</b> <code>81117443</code>\n<b>🔐 Token:</b> <code>tok-abc123</code>\n\n<b>🌐 Public URL:</b> https://dsh.example.com\n<b>🔗 Full URL:</b> <a href="https://dsh.example.com?pin=81117443&amp;token=tok-abc123">https://dsh.example.com?pin=81117443&amp;token=tok-abc123</a>\n<i>Tap PIN/Token to copy • Full URL opens directly in iOS PWA</i>\n\n<b>🏠 LAN:</b> http://192.168.1.20:3081'
 
 describe('scheduleStartupNotification', () => {
   it('waits for initialReady, then sends the telegram target and startup text without leaking credentials to logs', async () => {
@@ -63,5 +64,36 @@ describe('scheduleStartupNotification', () => {
     await deps.initialReady()
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(deps.loadConfig).not.toHaveBeenCalled()
+  })
+
+  it('omits token lines when readToken is undefined', async () => {
+    const deps = makeDeps({ readToken: undefined })
+    scheduleStartupNotification(deps)
+    await vi.waitFor(() => expect(deps.notifier!.send).toHaveBeenCalledWith(
+      'telegram',
+      { botToken: 'bot-token', chatId: '-1001234567890' },
+      { text: '<b>🚀 DSH Web is Ready</b>\n\n<b>🔑 PIN:</b> <code>81117443</code>\n\n<b>🌐 Public URL:</b> https://dsh.example.com\n\n<b>🏠 LAN:</b> http://192.168.1.20:3081' },
+    ))
+  })
+
+  it('omits token lines when readToken resolves to undefined', async () => {
+    const deps = makeDeps({ readToken: vi.fn().mockResolvedValue(undefined) })
+    scheduleStartupNotification(deps)
+    await vi.waitFor(() => expect(deps.notifier!.send).toHaveBeenCalledWith(
+      'telegram',
+      { botToken: 'bot-token', chatId: '-1001234567890' },
+      { text: '<b>🚀 DSH Web is Ready</b>\n\n<b>🔑 PIN:</b> <code>81117443</code>\n\n<b>🌐 Public URL:</b> https://dsh.example.com\n\n<b>🏠 LAN:</b> http://192.168.1.20:3081' },
+    ))
+  })
+
+  it('supports lazy notifier provider', async () => {
+    const send = vi.fn().mockResolvedValue({ sent: true })
+    const deps = makeDeps({ notifier: (() => ({ send })) as any })
+    scheduleStartupNotification(deps)
+    await vi.waitFor(() => expect(send).toHaveBeenCalledWith(
+      'telegram',
+      { botToken: 'bot-token', chatId: '-1001234567890' },
+      { text: EXPECTED_TEXT },
+    ))
   })
 })
