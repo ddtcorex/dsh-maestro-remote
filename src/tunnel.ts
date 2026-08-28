@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { loadUserConfig, saveUserConfig } from './config-store.js'
@@ -424,14 +425,30 @@ export function apply(ctx: Context): void {
     loadConfig: () => loadUserConfig(),
     readPin,
     readToken: async () => {
+      // Primary: live connection service (same launchToken as the printed URL)
       try {
         const conn = (ctx as any).connection as { authenticatedUrl?: (url: string) => string } | undefined
-        if (conn?.authenticatedUrl === undefined) return undefined
-        const url = conn.authenticatedUrl('http://127.0.0.1:3080')
-        return new URL(url).searchParams.get('token') ?? undefined
-      } catch {
-        return undefined
-      }
+        if (conn?.authenticatedUrl !== undefined) {
+          const url = conn.authenticatedUrl('http://127.0.0.1:3080')
+          const t = new URL(url).searchParams.get('token')
+          if (t) return t
+        }
+      } catch {}
+      // Fallback: token printed to dsh-web log (covers service-order race)
+      try {
+        const candidates = [
+          join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'dsh-web.log'),
+          process.env.DSH_RESTART_LOG ?? '/tmp/dsh-web-restart.log',
+        ]
+        for (const p of candidates) {
+          try {
+            const content = await readFile(p, 'utf8')
+            const m = content.match(/token=([A-Za-z0-9._-]+)/)
+            if (m?.[1]) return m[1]
+          } catch {}
+        }
+      } catch {}
+      return undefined
     },
     proxyStatus: () => tunnelController.proxyStatus(),
     status: () => tunnelController.status(),
