@@ -1,11 +1,11 @@
-# Contributing to maestro-skills
+# Contributing to dsh-maestro-remote
 
-Thank you for contributing to **maestro-skills** (`@ddtcorex/maestro-skills`) — a unified skills library for AI coding agents (Magento 2 / Govard / superpowers), packaged as a Cordis plugin for DeepSeek Harness and as a Claude Code / Codex CLI plugin.
+Thank you for contributing to **dsh-maestro-remote** (`@ddtcorex/dsh-maestro-remote`) — remote access plugin for DeepSeek Harness: a Cloudflare tunnel (quick or named) plus a LAN remote proxy so a DSH session can be reached from outside the machine, gated by a second PIN with QR provisioning.
 
 ## Getting Started
 
-1. **Fork and clone** `github.com/ddtcorex/maestro-skills`.
-2. Install dependencies (requires Node.js 20+, pnpm 10+):
+1. **Fork and clone** `github.com/ddtcorex/dsh-maestro-remote`.
+2. Install dependencies (requires Node.js 22+, pnpm 11+):
 
    ```bash
    pnpm install
@@ -14,10 +14,10 @@ Thank you for contributing to **maestro-skills** (`@ddtcorex/maestro-skills`) �
 3. Build the Cordis plugin (TypeScript → `lib/`):
 
    ```bash
-   pnpm build        # runs tsc
+   pnpm build        # tsc -> lib/
    ```
 
-4. Open the project in your editor. Each skill lives at `skills/<name>/SKILL.md` — the single source of truth. Do not create duplicate copies or symlinks.
+4. Open the project in your editor. Host logic lives in `src/host/`, tests in `tests/`. `lib/` is committed build output — do not hand-edit.
 
 ## Superpowers 3-Phase Workflow (AGENTS.md)
 
@@ -34,7 +34,7 @@ Do not skip ahead to implementation and do not bundle multiple TDD tasks into on
 Never commit directly to `master`. Start a feature branch per work session:
 
 - `fix/<topic>` — bug fixes
-- `feat/<topic>` — new features / new skills
+- `feat/<topic>` — new features
 - `docs/<topic>` — documentation-only changes
 
 Rebase (not merge) when the base moves: `git fetch origin && git rebase origin/master`.
@@ -52,7 +52,7 @@ Refs: #<issue>
 ```
 
 - **Types (closed list):** `feat` `fix` `docs` `chore` `refactor` `perf` `test` `build` `ci` `revert`
-- **Scope:** optional, without the `dsh-maestro-` prefix — e.g. `feat(skills):`, `fix(frontmatter):`, `docs(readme):`
+- **Scope:** optional, without the `dsh-maestro-` prefix — e.g. `feat(remote):`, `fix(tunnel):`, `docs(readme):`
 - **Subject:** imperative, lowercase first word, ≤ 72 chars, no trailing period
 - **Body:** explain *why* and trade-offs when non-trivial
 - **Breaking changes:** `feat!: <subject>` plus a `BREAKING CHANGE:` footer
@@ -64,25 +64,13 @@ One TDD task = one commit while executing a plan; squash at merge time if the hi
 Run these before opening a PR (match depth to risk):
 
 ```bash
-pnpm verify      # typecheck — tsc --noEmit (add a verify script if missing: "verify": "tsc --noEmit")
+pnpm verify      # tsc --noEmit
 pnpm test        # vitest run
-pnpm build       # tsc — ensures lib/ is not stale
+pnpm build       # tsc -> lib/
+test -f lib/index.js && echo "build ok"
 ```
 
-Additional checks when relevant:
-
-```bash
-# Plugin manifests
-claude plugin validate . --strict
-claude --plugin-dir . plugin details maestro-skills
-
-# install.sh
-bash -n install.sh
-bash install.sh --help
-
-# Superpowers fork sync (only when updating the fork)
-scripts/sync-superpowers.sh
-```
+A tunnel change must be validated live (real start/stop + proxy round-trip), not just by unit tests — see `AGENTS.md`.
 
 Do not claim verified/done/clean without having actually run the checks — be ready to paste exact command output in the PR.
 
@@ -95,7 +83,7 @@ Do not claim verified/done/clean without having actually run the checks — be r
 
 ## Package Visibility
 
-This package is public (`"private": false` — field omitted, defaults to public on npm). Never set `"private": true` in `package.json`. Publishing uses `pnpm publish --access public`.
+This package is public (`"private": false`). Never set `"private": true` in `package.json`. Publishing uses `pnpm publish --access public`.
 
 ## Code of Conduct
 
@@ -105,7 +93,7 @@ This project follows the [Contributor Covenant Code of Conduct](./CODE_OF_CONDUC
 
 - General questions: open a GitHub Discussion or issue.
 - Contact maintainer: [kaido4492@gmail.com](mailto:kaido4492@gmail.com)
-- Security vulnerabilities: use GitHub's private advisory reporting at `https://github.com/ddtcorex/maestro-skills/security/advisories` — do not file a public issue.
+- Security vulnerabilities: use GitHub's private advisory reporting at `https://github.com/ddtcorex/dsh-maestro-remote/security/advisories` — do not file a public issue.
 
 ## License
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply } from '../src/tunnel.ts';
+import { apply } from '../src/host/tunnel.ts';
 
 let home: string;
 let previousDshHome: string | undefined;

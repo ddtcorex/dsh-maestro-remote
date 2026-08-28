@@ -6,5 +6,6 @@
 - insert:
     - id: dsh-maestro-remote-rpc
       name: '@ddtcorex/dsh-maestro-remote/lib/index.js'
+      channel: /dsh-maestro-remote
     - id: dsh-maestro-tunnel
       name: '@ddtcorex/dsh-maestro-remote/lib/tunnel.js'
