@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { scheduleStartupNotification, type StartupNotifyDependencies } from '../src/host/startup-notify.ts'
+
+beforeEach(() => {
+  delete (globalThis as unknown as Record<string, unknown>).__maestroStartupNotified
+})
 
 function makeDeps(overrides: Partial<StartupNotifyDependencies> = {}): StartupNotifyDependencies {
   return {
@@ -95,5 +99,18 @@ describe('scheduleStartupNotification', () => {
       { botToken: 'bot-token', chatId: '-1001234567890' },
       { text: EXPECTED_TEXT },
     ))
+  })
+
+  it('dedupes second call within 60s in same process (fiber reload guard)', async () => {
+    const send = vi.fn().mockResolvedValue({ sent: true })
+    const deps1 = makeDeps({ notifier: { send } })
+    const deps2 = makeDeps({ notifier: { send } })
+    scheduleStartupNotification(deps1)
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1))
+    // second fiber scheduling should be skipped
+    scheduleStartupNotification(deps2)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(deps2.logger?.info).toHaveBeenCalledWith('maestro-telegram: startup notification skipped (deduped)')
   })
 })
