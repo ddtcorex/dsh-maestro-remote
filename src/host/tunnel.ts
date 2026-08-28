@@ -213,6 +213,15 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export const name = 'maestro-tunnel'
+// Deliberately NOT injecting 'connection' here even though readToken() below
+// reads it: declaring it forces Cordis to defer this plugin's apply() until
+// the connection service is ready, which shifted maestro-tunnel's load order
+// relative to the optional maestro-notifier service and made the startup
+// Telegram notification stop firing at all (regression found live 2026-08-28
+// -- tunnel/proxy still worked, so apply() wasn't stuck, but scheduleStart-
+// upNotification's lazy `ctx.get('maestroNotifier')` came up empty). Read
+// ctx.connection opportunistically instead; see the bounded retry in
+// readToken() for the actual race fix.
 export const inject = ['webServer']
 
 /**
@@ -425,15 +434,22 @@ export function apply(ctx: Context): void {
     loadConfig: () => loadUserConfig(),
     readPin,
     readToken: async () => {
-      // Primary: live connection service (same launchToken as the printed URL)
-      try {
-        const conn = (ctx as any).connection as { authenticatedUrl?: (url: string) => string } | undefined
-        if (conn?.authenticatedUrl !== undefined) {
-          const url = conn.authenticatedUrl('http://127.0.0.1:3080')
-          const t = new URL(url).searchParams.get('token')
-          if (t) return t
-        }
-      } catch {}
+      // Primary: live connection service (same launchToken as the printed URL).
+      // `connection` is deliberately not in this plugin's `inject` (see the
+      // comment on `inject` above), so it may not be registered yet the first
+      // time this runs -- retry briefly instead of racing straight to the
+      // log-file fallback, which reads output this same process is writing.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const conn = (ctx as any).connection as { authenticatedUrl?: (url: string) => string } | undefined
+          if (conn?.authenticatedUrl !== undefined) {
+            const url = conn.authenticatedUrl('http://127.0.0.1:3080')
+            const t = new URL(url).searchParams.get('token')
+            if (t) return t
+          }
+        } catch {}
+        if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 200))
+      }
       // Fallback: token printed to dsh-web log (covers service-order race)
       try {
         const candidates = [
