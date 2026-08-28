@@ -259,14 +259,15 @@ export function apply(ctx: Context): void {
     }
     try {
       const candidates = [
-        join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'dsh-web.log'),
         process.env.DSH_RESTART_LOG ?? '/tmp/dsh-web-restart.log',
+        join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'dsh-web.log'),
       ]
       for (const p of candidates) {
         try {
           const content = await readFile(p, 'utf8')
-          const m = content.match(/token=([A-Za-z0-9._-]+)/)
-          if (m?.[1]) return m[1]
+          const matches = [...content.matchAll(/token=([A-Za-z0-9._-]+)/g)]
+          const last = matches.at(-1)?.[1]
+          if (last) return last
         } catch {}
       }
     } catch {}
