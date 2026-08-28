@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRemoteProxy, type RemoteProxyHandle } from '../src/remote-proxy.ts';
+import { createRemoteProxy, type RemoteProxyHandle } from '../src/host/remote-proxy.ts';
 
 const execFileAsync = promisify(execFile);
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -62,10 +62,15 @@ function findPatch(): string {
 
 function existsTunnel(): boolean {
   const candidates = [
+    'packages/dsh-maestro-remote/src/host/tunnel.ts',
     'packages/dsh-maestro-remote/src/tunnel.ts',
+    'src/host/tunnel.ts',
     'src/tunnel.ts',
+    resolve(dirname(fileURLToPath(import.meta.url)), '../src/host/tunnel.ts'),
     resolve(dirname(fileURLToPath(import.meta.url)), '../src/tunnel.ts'),
+    resolve(process.cwd(), 'src/host/tunnel.ts'),
     resolve(process.cwd(), 'src/tunnel.ts'),
+    resolve(process.cwd(), 'packages/dsh-maestro-remote/src/host/tunnel.ts'),
     resolve(process.cwd(), 'packages/dsh-maestro-remote/src/tunnel.ts'),
   ];
   return candidates.some(p => existsSync(p));

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtemp, rm, readFile, writeFile, mkdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadUserConfig, saveUserConfig, type MaestroUserConfig } from '../src/config-store.ts'
+import { loadUserConfig, saveUserConfig, type MaestroUserConfig } from '../src/host/config-store.ts'
 
 let home: string
 beforeEach(async () => { home = await mkdtemp(join(tmpdir(), 'rstore-')) })

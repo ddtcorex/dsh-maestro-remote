@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { scheduleStartupNotification, type StartupNotifyDependencies } from '../src/startup-notify.ts'
+import { scheduleStartupNotification, type StartupNotifyDependencies } from '../src/host/startup-notify.ts'
 
 function makeDeps(overrides: Partial<StartupNotifyDependencies> = {}): StartupNotifyDependencies {
   return {
