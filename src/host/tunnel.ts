@@ -248,7 +248,9 @@ export function apply(ctx: Context): void {
   async function readDshToken(): Promise<string | undefined> {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const conn = (ctx as any).connection as { authenticatedUrl?: (url: string) => string } | undefined
+        const conn =
+          ((ctx as any).connection as { authenticatedUrl?: (url: string) => string } | undefined) ??
+          (ctx.get?.('connection') as { authenticatedUrl?: (url: string) => string } | undefined)
         if (conn?.authenticatedUrl !== undefined) {
           const url = conn.authenticatedUrl('http://127.0.0.1:3080')
           const t = new URL(url).searchParams.get('token')
@@ -259,8 +261,8 @@ export function apply(ctx: Context): void {
     }
     try {
       const candidates = [
-        process.env.DSH_RESTART_LOG ?? '/tmp/dsh-web-restart.log',
         join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'dsh-web.log'),
+        process.env.DSH_RESTART_LOG ?? '/tmp/dsh-web-restart.log',
       ]
       for (const p of candidates) {
         try {
