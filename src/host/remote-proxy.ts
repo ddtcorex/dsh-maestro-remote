@@ -515,6 +515,22 @@ async function compressIfEligible(
         proxyRequest(req, res)
         return
       }
+      // GitLab webhooks hit the public tunnel hostname without a PIN cookie.
+      // They are authenticated separately via X-Gitlab-Token in
+      // maestro-review-webhook, so exempt the exact known webhook paths before
+      // the PIN gate — everything else stays PIN-protected (minimal fix for
+      // overly broad /hooks/ prefix that would expose any future hook).
+      if (req.url !== undefined) {
+        try {
+          const pathname = new URL(req.url, 'http://proxy').pathname
+          if (pathname === '/hooks/gitlab-mr' || pathname === '/hooks/gitlab-mr/trigger') {
+            proxyRequest(req, res)
+            return
+          }
+        } catch {
+          // Malformed URL — fall through to PIN gate (will be 401/500, not crash)
+        }
+      }
       if (!(await authorized(req))) {
         const wantsHtml = String(req.headers.accept ?? '').includes('text/html') || req.url === '/'
         if (wantsHtml) serveLogin(res)
