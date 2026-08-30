@@ -411,19 +411,40 @@ async function compressIfEligible(
 
   /** Route one upstream response: HTML polyfill injection, compression, or raw pass-through. */
   async function handleUpstreamResponse(req: IncomingMessage, upstreamRes: IncomingMessage, res: ServerResponse): Promise<void> {
-    const compressed = upstreamRes.headers['content-encoding'] !== undefined
     const isHtml = String(upstreamRes.headers['content-type'] ?? '').includes('text/html')
-    if (isHtml && !compressed) {
+    // For HTML, inject even when upstream is already compressed (e.g. via cloudflared's br): buffer, decompress, inject, then re-send
+    if (isHtml) {
       const chunks: Buffer[] = []
       upstreamRes.on('data', (chunk: Buffer) => chunks.push(chunk))
-      upstreamRes.on('end', () => {
-        const out = Buffer.from(injectPolyfill(Buffer.concat(chunks).toString('utf-8')), 'utf-8')
-        const outHeaders = { ...upstreamRes.headers }
-        delete outHeaders['content-length']
-        delete outHeaders['transfer-encoding']
-        outHeaders['content-length'] = String(out.length)
-        res.writeHead(upstreamRes.statusCode ?? 200, outHeaders)
-        res.end(out)
+      upstreamRes.on('end', async () => {
+        try {
+          let body = Buffer.concat(chunks)
+          const enc = String(upstreamRes.headers['content-encoding'] ?? '').toLowerCase()
+          if (enc.includes('br')) {
+            const { brotliDecompressSync } = await import('node:zlib')
+            body = brotliDecompressSync(body)
+          } else if (enc.includes('gzip')) {
+            const { gunzipSync } = await import('node:zlib')
+            body = gunzipSync(body)
+          } else if (enc.includes('deflate')) {
+            const { inflateSync } = await import('node:zlib')
+            body = inflateSync(body)
+          }
+          const out = Buffer.from(injectPolyfill(body.toString('utf-8')), 'utf-8')
+          const outHeaders = { ...upstreamRes.headers }
+          delete outHeaders['content-encoding']
+          delete outHeaders['content-length']
+          delete outHeaders['transfer-encoding']
+          outHeaders['content-length'] = String(out.length)
+          // preserve vary
+          res.writeHead(upstreamRes.statusCode ?? 200, outHeaders)
+          res.end(out)
+        } catch {
+          // fallback: pass through without inject on decompress error
+          const outHeaders = { ...upstreamRes.headers }
+          res.writeHead(upstreamRes.statusCode ?? 200, outHeaders)
+          res.end(Buffer.concat(chunks))
+        }
       })
       upstreamRes.on('error', () => res.destroy())
       return
