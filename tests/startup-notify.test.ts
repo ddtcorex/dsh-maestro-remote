@@ -19,7 +19,7 @@ function makeDeps(overrides: Partial<StartupNotifyDependencies> = {}): StartupNo
   }
 }
 
-const EXPECTED_TEXT = '<b>🚀 DSH Web is Ready</b>\n\n<b>🔑 PIN:</b> <code>81117443</code>\n\n<b>🌐 Public URL:</b> https://dsh.example.com\n\n<b>🏠 LAN:</b> http://192.168.1.20:3081'
+const EXPECTED_TEXT = '<b>🚀 DSH Web is Ready</b>\n<b>🔑 PIN:</b> <code>81117443</code>\n<b>🌐 Public URL:</b> https://dsh.example.com'
 
 describe('scheduleStartupNotification', () => {
   it('waits for initialReady, then sends the telegram target and startup text without leaking credentials to logs', async () => {
@@ -76,7 +76,7 @@ describe('scheduleStartupNotification', () => {
     await vi.waitFor(() => expect(deps.notifier!.send).toHaveBeenCalledWith(
       'telegram',
       { botToken: 'bot-token', chatId: '-1001234567890' },
-      { text: '<b>🚀 DSH Web is Ready</b>\n\n<b>🔑 PIN:</b> <code>81117443</code>\n\n<b>🌐 Public URL:</b> https://dsh.example.com\n\n<b>🏠 LAN:</b> http://192.168.1.20:3081' },
+      { text: EXPECTED_TEXT },
     ))
   })
 
@@ -86,7 +86,17 @@ describe('scheduleStartupNotification', () => {
     await vi.waitFor(() => expect(deps.notifier!.send).toHaveBeenCalledWith(
       'telegram',
       { botToken: 'bot-token', chatId: '-1001234567890' },
-      { text: '<b>🚀 DSH Web is Ready</b>\n\n<b>🔑 PIN:</b> <code>81117443</code>\n\n<b>🌐 Public URL:</b> https://dsh.example.com\n\n<b>🏠 LAN:</b> http://192.168.1.20:3081' },
+      { text: EXPECTED_TEXT },
+    ))
+  })
+
+  it('reports a proxy that is not running, still without blank lines or LAN URLs', async () => {
+    const deps = makeDeps({ proxyStatus: () => ({ running: false, lanUrls: [] }) })
+    scheduleStartupNotification(deps)
+    await vi.waitFor(() => expect(deps.notifier!.send).toHaveBeenCalledWith(
+      'telegram',
+      { botToken: 'bot-token', chatId: '-1001234567890' },
+      { text: '<b>🚀 DSH Web is Ready</b>\n<b>🔑 PIN:</b> <code>81117443</code>\n<b>🌐 Public URL:</b> https://dsh.example.com\n<b>⚠️ Proxy:</b> not running' },
     ))
   })
 
