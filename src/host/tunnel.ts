@@ -458,7 +458,6 @@ export function apply(ctx: Context): void {
     initialReady: () => tunnelController.initialReady(),
     loadConfig: () => loadUserConfig(),
     readPin,
-    proxyStatus: () => tunnelController.proxyStatus(),
     status: () => tunnelController.status(),
     notifier: () => ctx.get?.('maestroNotifier') as import('./startup-notify.js').NotifierLike | undefined,
     logger: ctx.logger,
