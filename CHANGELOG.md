@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-09-02
+
+### Changed
+
+- **Startup Telegram notification** is now a single compact block: separator
+  blank lines removed, so `Ready` / `PIN` / `Public URL` sit on consecutive
+  rows (PR #34).
+- Dependency refresh: `@deepseek-ai/*` → `0.1.2-alpha.2`, `cordis` → `4.0.2`
+  (PR #33).
+
+### Removed
+
+- **LAN URL row** from the startup notification — the address was only usable
+  from inside the same LAN and leaked a local IP into the message.
+- **Proxy status block** (including the `⚠️ Proxy` failure lines) from the
+  startup notification; the message now carries readiness, PIN and the public
+  URL only.
+
 ## [0.1.0] - 2026-08-28
 
 Initial release of `@ddtcorex/dsh-maestro-remote` — remote access plugin for
@@ -32,4 +50,5 @@ with QR provisioning and startup Telegram notifications.
   (`authority: loopback`) with `status` endpoint.
 - **Client half** (`client/`): settings + tunnel status UI via injected slots.
 
+[0.1.3]: https://github.com/ddtcorex/dsh-maestro-remote/releases/tag/v0.1.3
 [0.1.0]: https://github.com/ddtcorex/dsh-maestro-remote/releases/tag/v0.1.0
