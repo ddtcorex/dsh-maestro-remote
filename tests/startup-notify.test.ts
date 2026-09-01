@@ -11,7 +11,6 @@ function makeDeps(overrides: Partial<StartupNotifyDependencies> = {}): StartupNo
     loadConfig: vi.fn().mockResolvedValue({ telegramBotToken: 'bot-token', telegramChatId: '-1001234567890' }),
     readPin: vi.fn().mockResolvedValue('81117443'),
     readToken: vi.fn().mockResolvedValue('tok-abc123'),
-    proxyStatus: () => ({ running: true, port: 3081, lanUrls: ['http://192.168.1.20:3081'] }),
     status: () => ({ running: true, publicUrl: 'https://dsh.example.com', phase: 'ready' }),
     notifier: { send: vi.fn().mockResolvedValue({ sent: true }) },
     logger: { info: vi.fn(), warn: vi.fn() },
@@ -87,16 +86,6 @@ describe('scheduleStartupNotification', () => {
       'telegram',
       { botToken: 'bot-token', chatId: '-1001234567890' },
       { text: EXPECTED_TEXT },
-    ))
-  })
-
-  it('reports a proxy that is not running, still without blank lines or LAN URLs', async () => {
-    const deps = makeDeps({ proxyStatus: () => ({ running: false, lanUrls: [] }) })
-    scheduleStartupNotification(deps)
-    await vi.waitFor(() => expect(deps.notifier!.send).toHaveBeenCalledWith(
-      'telegram',
-      { botToken: 'bot-token', chatId: '-1001234567890' },
-      { text: '<b>🚀 DSH Web is Ready</b>\n<b>🔑 PIN:</b> <code>81117443</code>\n<b>🌐 Public URL:</b> https://dsh.example.com\n<b>⚠️ Proxy:</b> not running' },
     ))
   })
 

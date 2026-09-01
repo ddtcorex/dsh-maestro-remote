@@ -19,7 +19,6 @@ export interface StartupNotifyDependencies {
   loadConfig: () => Promise<{ telegramBotToken?: string; telegramChatId?: string }>
   readPin: () => Promise<string>
   readToken?: () => Promise<string | undefined>
-  proxyStatus: () => { running: boolean; lanUrls: string[]; errorMessage?: string }
   status: () => { running: boolean; publicUrl?: string; errorMessage?: string }
   /** Optional notifier service; when absent the startup update is skipped entirely. May be a lazy provider to handle service registration order. */
   notifier?: NotifierLike | (() => NotifierLike | undefined)
@@ -30,9 +29,8 @@ function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
 }
 
-function startupText({ pin, proxy, tunnel }: {
+function startupText({ pin, tunnel }: {
   pin: string
-  proxy: { running: boolean; lanUrls: string[]; errorMessage?: string }
   tunnel: { running: boolean; publicUrl?: string; errorMessage?: string }
 }): string {
   const pinEsc = escapeHtml(pin)
@@ -44,10 +42,6 @@ function startupText({ pin, proxy, tunnel }: {
     lines.push(`<b>🌐 Public URL:</b> ${urlEsc}`)
   } else if (tunnel.errorMessage !== undefined) lines.push(`<b>⚠️ Tunnel:</b> ${escapeHtml(tunnel.errorMessage)}`)
   else lines.push('<b>⚠️ Tunnel:</b> not running')
-  if (!proxy.running) {
-    if (proxy.errorMessage !== undefined) lines.push(`<b>⚠️ Proxy:</b> ${escapeHtml(proxy.errorMessage)}`)
-    else lines.push('<b>⚠️ Proxy:</b> not running')
-  }
   return lines.join('\n')
 }
 
@@ -83,7 +77,6 @@ export function scheduleStartupNotification(dependencies: StartupNotifyDependenc
       {
         text: startupText({
           pin,
-          proxy: dependencies.proxyStatus(),
           tunnel: dependencies.status(),
         }),
       },
