@@ -38,20 +38,16 @@ function startupText({ pin, proxy, tunnel }: {
   const pinEsc = escapeHtml(pin)
   const lines: string[] = []
   lines.push('<b>🚀 DSH Web is Ready</b>')
-  lines.push('')
   lines.push(`<b>🔑 PIN:</b> <code>${pinEsc}</code>`)
-  lines.push('')
   if (tunnel.running && tunnel.publicUrl !== undefined) {
     const urlEsc = escapeHtml(tunnel.publicUrl)
     lines.push(`<b>🌐 Public URL:</b> ${urlEsc}`)
   } else if (tunnel.errorMessage !== undefined) lines.push(`<b>⚠️ Tunnel:</b> ${escapeHtml(tunnel.errorMessage)}`)
   else lines.push('<b>⚠️ Tunnel:</b> not running')
-  lines.push('')
-  if (proxy.running && proxy.lanUrls.length > 0) {
-    const lanEsc = proxy.lanUrls.map(l => escapeHtml(l)).join(', ')
-    lines.push(`<b>🏠 LAN:</b> ${lanEsc}`)
-  } else if (proxy.errorMessage !== undefined) lines.push(`<b>⚠️ Proxy:</b> ${escapeHtml(proxy.errorMessage)}`)
-  else lines.push('<b>⚠️ Proxy:</b> not running')
+  if (!proxy.running) {
+    if (proxy.errorMessage !== undefined) lines.push(`<b>⚠️ Proxy:</b> ${escapeHtml(proxy.errorMessage)}`)
+    else lines.push('<b>⚠️ Proxy:</b> not running')
+  }
   return lines.join('\n')
 }
 
