@@ -190,7 +190,11 @@ const LOGIN_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/__maestro/apple-touch-icon.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
   '/apple-touch-icon.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
   '/apple-touch-icon-precomposed.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
-  '/favicon.ico': { file: 'apple-touch-icon.png', contentType: 'image/png' },
+  '/favicon.ico': { file: 'favicon.ico', contentType: 'image/png' },
+  '/favicon.svg': { file: 'favicon.svg', contentType: 'image/svg+xml' },
+  '/__maestro/favicon.svg': { file: 'favicon.svg', contentType: 'image/svg+xml' },
+  '/favicon-32.png': { file: 'favicon-32.png', contentType: 'image/png' },
+  '/favicon-16.png': { file: 'favicon-16.png', contentType: 'image/png' },
   '/__maestro/icon-192.png': { file: 'icon-192.png', contentType: 'image/png' },
   '/__maestro/icon-512.png': { file: 'icon-512.png', contentType: 'image/png' },
   '/icon-192.png': { file: 'icon-192.png', contentType: 'image/png' },
@@ -201,6 +205,10 @@ const LOGIN_PAGE = (error: boolean) => `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0A84FF">
 <title>Maestro access</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <link rel="stylesheet" href="/__maestro/login.css">
 <link rel="apple-touch-icon" sizes="180x180" href="/__maestro/apple-touch-icon.png">
 <link rel="apple-touch-icon" sizes="192x192" href="/__maestro/icon-192.png">
