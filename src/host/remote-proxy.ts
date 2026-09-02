@@ -72,7 +72,7 @@ const TRUSTED_PROXY_MARKER = '<script data-maestro-trusted-proxy="1">globalThis.
 // declare ClientTransportHooks.ownsHost without replacing fetch/openStream and
 // the browser keeps normal same-origin RPC while host-backed settings unlock.
 const LOOPBACK_TRANSPORT_MARKER = '<script data-maestro-loopback-transport="1">globalThis.__DSH_TRANSPORT__=Object.assign(globalThis.__DSH_TRANSPORT__||{},{ownsHost:true});</script>'
-const TITLE_MARKER = '<script data-maestro-title="1">try{document.title="Maestro";new MutationObserver(function(){if(document.title!=="Maestro")document.title="Maestro"}).observe(document.querySelector("title"),{childList:true,characterData:true,subtree:true})}catch(e){}</script>'
+const TITLE_MARKER = '<script data-maestro-title="1">try{function m(){var t=document.title;if(t==="DSH Local Build"||t==="DeepSeek Harness"||t==="DSH")document.title="Maestro";else if(t.indexOf("DSH Local Build")!==-1)document.title=t.replace("DSH Local Build","Maestro");else if(t.indexOf("DeepSeek Harness")!==-1)document.title=t.replace("DeepSeek Harness","Maestro");else if(t.indexOf("DSH")!==-1&&t.indexOf("Maestro")===-1)document.title=t.replace("DSH","Maestro");else if(t&&t.indexOf("Maestro")===-1)document.title=t+" - Maestro";}m();new MutationObserver(m).observe(document.querySelector("title")||document.head,{childList:true,characterData:true,subtree:true})}catch(e){}</script>'
 
 /** Inject the insecure-context polyfill and authenticated-proxy markers once per HTML document. */
 export function injectPolyfill(html: string): string {
