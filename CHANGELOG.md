@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0] - 2026-09-02
+
+### Added
+
+- Local LAN PIN gate on the canonical `:3080` (spec 2026-09-02 local-pin-gate): the LAN proxy owns `:3080` behind the maestro PIN, the raw webserver moves off it, and the whole LAN is gated with the single public PIN (`lanPort`/`lanHost`/`lanPinEnabled` settings, mapped through `dsh-maestro-config-lib` 0.1.4).
+- Fail-closed deployment contract: when the webserver is not on `:3080` and `lanPort` is unset, `ProxyStatus.deploymentError` is surfaced instead of silently serving a topology with a dead canonical URL.
+
 All notable changes to this project are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
