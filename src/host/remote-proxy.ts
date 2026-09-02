@@ -196,10 +196,11 @@ const LOGIN_PAGE = (error: boolean) => `<!doctype html><html lang="en"><head>
 <script>window.__MAESTRO_LOGIN_ERROR__=${error ? 'true' : 'false'}</script>
 </head><body><script>if(matchMedia('(prefers-color-scheme: dark)').matches)document.body.setAttribute('data-ds-dark-theme','')</script><main>
 <form data-maestro-login-fallback method="post" action="/maestro-login" class="maestro-login-card${error ? ' maestro-shake' : ''}">
-<p class="maestro-login-title">Maestro access</p>
-<p class="maestro-login-copy${error ? ' maestro-login-error' : ''}">${error ? 'Wrong PIN, try again.' : 'This public address is PIN-protected.'}</p>
-<span class="maestro-login-input maestro-login-native-input"><input id="maestro-login-pin" name="pin" inputmode="numeric" maxlength="8" autofocus required aria-label="Access PIN" placeholder="8-digit PIN" autocomplete="one-time-code"></span>
+<span class="maestro-login-badge" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 16 16" fill="none"><path d="M2 11 L5 4 L8 9 L11 4 L14 11" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div class="maestro-login-head"><h1 class="maestro-login-title">Maestro access</h1><p class="maestro-login-copy${error ? ' maestro-login-error' : ''}">${error ? 'Wrong PIN, try again.' : 'This public address is PIN-protected.'}</p></div>
+<span class="maestro-login-input maestro-login-native-input"><input id="maestro-login-pin" name="pin" inputmode="numeric" maxlength="8" autofocus required aria-label="Access PIN" placeholder="••••••••" autocomplete="one-time-code"></span>
 <button type="submit" class="maestro-login-submit">Enter</button>
+<p class="maestro-login-foot">PIN from Maestro Settings → Tunnel · rotates on demand</p>
 </form>
 <div id="maestro-login-root"></div>
 </main><script src="/__maestro/login.js"></script></body></html>`
