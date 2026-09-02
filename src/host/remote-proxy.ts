@@ -150,6 +150,13 @@ export interface RemoteProxyOptions {
    * ctx.connection.authenticatedUrl().
    */
   getDshToken?: () => Promise<string | undefined>
+  /**
+   * Exact pathname prefixes that bypass the PIN gate on this listener, in
+   * addition to the shared static exemptions (manifest, review webhooks).
+   * Wire loopback-only RPC channels here on the local/LAN listener only —
+   * never on the public listener, which must stay fully PIN-gated.
+   */
+  gateExemptPathPrefixes?: string[]
 }
 
 export interface LoginRateLimit { maxFailures: number; windowMs: number }
@@ -539,6 +546,12 @@ async function compressIfEligible(
           }
         } catch {
           // Malformed URL — fall through to PIN gate (will be 401/500, not crash)
+        }
+      }
+      for (const prefix of options.gateExemptPathPrefixes ?? []) {
+        if (req.url !== undefined && req.url.startsWith(prefix)) {
+          proxyRequest(req, res)
+          return
         }
       }
       if (!(await authorized(req))) {

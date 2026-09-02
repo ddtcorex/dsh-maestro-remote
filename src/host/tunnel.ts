@@ -166,8 +166,17 @@ export interface TunnelStatus {
 export interface ProxyStatus {
   running: boolean
   port?: number
+  /** Local/LAN PIN-gated listener port when `lanPort` is configured. */
+  lanPort?: number
   lanUrls: string[]
   errorMessage?: string
+  /**
+   * Fail-closed deployment contract (2026-09-02 local-pin-gate): when the raw
+   * webserver is NOT on the canonical :3080 but no LAN proxy port is
+   * configured, the canonical local URL silently dies. Surfaced here so the
+   * operator sees the misconfiguration instead of a dead port.
+   */
+  deploymentError?: string
 }
 
 export interface TunnelController {
@@ -239,6 +248,9 @@ export function apply(ctx: Context): void {
   // the hostname the tunnel actually uses.
   let configuredHostname: string | undefined
   let proxyPort = 3081
+  /** Local/LAN proxy listener (spec: local-pin-gate); undefined when `lanPort` is unset. */
+  let lanProxy: RemoteProxyHandle | undefined
+  let lanPort: number | undefined
   // In-flight start (single-flight): concurrent start calls share one attempt
   // so two callers can never spawn two cloudflared processes.
   let starting: Promise<TunnelStatus> | undefined
@@ -281,6 +293,9 @@ export function apply(ctx: Context): void {
     // the same port instead of leaking the old, ungated listener beside the new one.
     await proxy?.close()
     proxy = undefined
+    await lanProxy?.close()
+    lanProxy = undefined
+    lanPort = undefined
     const bootConfig = await loadUserConfig()
     configuredHostname = bootConfig.tunnelHostname
     const requestedPort = bootConfig.proxyPort ?? 3081
@@ -307,9 +322,23 @@ export function apply(ctx: Context): void {
           ctx.logger?.warn?.(`maestro-tunnel: proxy port ${requestedPort} busy — listening on ${candidate} instead`)
         }
         proxyState = { running: true, port: handle.port, lanUrls: lanUrls(handle.port) }
+        proxyState.lanPort = lanPort
+        // Fail-closed deployment contract (2026-09-02 local-pin-gate): moving
+        // the raw webserver off the canonical :3080 is only valid together
+        // with a LAN proxy on that port. If the webserver is elsewhere AND
+        // lanPort is unset, the canonical local URL silently dies — surface it
+        // instead of booting a topology nobody can reach by the well-known URL.
+        const webserverPort = (ctx as any).webServer?.port
+        proxyState.deploymentError = undefined
+        if (webserverPort !== undefined && webserverPort !== 3080 && bootConfig.lanPort === undefined) {
+          const msg = `maestro-tunnel: webserver runs on ${webserverPort} but lanPort is not configured — the canonical local URL http://127.0.0.1:3080/ is NOT served; set domains.tunnel.lanPort=3080 (or move the webserver back to 3080)`
+          ctx.logger?.warn?.(msg)
+          proxyState.deploymentError = msg
+        }
         // Named-tunnel ingress must route public traffic at the port actually
         // bound, not the configured request that may have been walked past.
         proxyPort = handle.port
+        await bootLanProxy(bootConfig)
         return
       } catch (err) {
         lastError = err
@@ -317,7 +346,50 @@ export function apply(ctx: Context): void {
         if (code !== 'EADDRINUSE') break
       }
     }
-    proxyState = { running: false, lanUrls: [], errorMessage: lastError instanceof Error ? lastError.message : String(lastError) }
+    proxyState = { running: false, lanPort: undefined, lanUrls: [], errorMessage: lastError instanceof Error ? lastError.message : String(lastError) }
+  }
+
+  /**
+   * Boot the local/LAN PIN-gated listener on `lanPort` (spec: local-pin-gate).
+   * Optional per-listener exemptions keep loopback-only RPC channels working
+   * on :3080; the public listener stays fully gated. A bind failure only
+   * degrades remote/LAN reachability — the public listener is untouched.
+   */
+  async function bootLanProxy(bootConfig: Awaited<ReturnType<typeof loadUserConfig>>): Promise<void> {
+    lanPort = undefined
+    if (bootConfig.lanPort === undefined) return
+    const lanRequested = bootConfig.lanPort
+    let lanError: unknown
+    for (let candidate = lanRequested; candidate < lanRequested + 10; candidate++) {
+      try {
+        const lanHandle = await createRemoteProxy({
+          port: candidate,
+          host: bootConfig.lanHost ?? '0.0.0.0',
+          upstream: { host: '127.0.0.1', port: (ctx as any).webServer.port },
+          auth: {
+            isPublic: () => false,
+            getPin: () => readPin(),
+            // Single-PIN model: the local listener reuses the public PIN, so
+            // the shared login page and cookie flow work unchanged.
+            ...(bootConfig.lanPinEnabled === true ? { getLanPin: () => readPin() } : {}),
+          },
+          getDshToken: readDshToken,
+          gateExemptPathPrefixes: ['/dsh-maestro-supervisor-resume'],
+        })
+        lanProxy = lanHandle
+        lanPort = lanHandle.port
+        if (candidate !== lanRequested) {
+          ctx.logger?.warn?.(`maestro-tunnel: lan port ${lanRequested} busy — listening on ${candidate} instead`)
+        }
+        proxyState.lanPort = lanPort
+        return
+      } catch (err) {
+        lanError = err
+        const code = (err as NodeJS.ErrnoException | undefined)?.code
+        if (code !== 'EADDRINUSE') break
+      }
+    }
+    ctx.logger?.warn?.(`maestro-tunnel: LAN proxy failed to bind — ${lanError instanceof Error ? lanError.message : String(lanError)}`)
   }
 
   const initialReady = bootProxy().then(async () => {
@@ -437,6 +509,7 @@ export function apply(ctx: Context): void {
     }
     status = { running: false, phase: 'idle' }
     await proxy?.close()
+    await lanProxy?.close()
   }, 'maestro-tunnel teardown')
 
   const tunnelController: TunnelController = {
