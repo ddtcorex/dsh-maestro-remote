@@ -63,12 +63,22 @@ const RANDOM_UUID_POLYFILL = `<script data-maestro-polyfill="1">!function(){try{
 // the authenticated proxy session without treating every public hostname as
 // trusted.
 const TRUSTED_PROXY_MARKER = '<script data-maestro-trusted-proxy="1">globalThis.__DSH_TRUSTED_PROXY__=true;</script>'
+// The DSH web client derives settings persistence from
+// ctx.remote.$host.isLoopback, which reads the page's own location.hostname —
+// a tunnel/LAN hostname is never loopback, so the Models/credentials surfaces
+// stay read-only "settings are unavailable in this browser". Every request on
+// this page already reaches the loopback upstream through the PIN-gated proxy
+// (loopbackAuthority rewrites Host/Origin), so owning the host is true here:
+// declare ClientTransportHooks.ownsHost without replacing fetch/openStream and
+// the browser keeps normal same-origin RPC while host-backed settings unlock.
+const LOOPBACK_TRANSPORT_MARKER = '<script data-maestro-loopback-transport="1">globalThis.__DSH_TRANSPORT__=Object.assign(globalThis.__DSH_TRANSPORT__||{},{ownsHost:true});</script>'
 
-/** Inject the insecure-context polyfill and authenticated-proxy marker once per HTML document. */
+/** Inject the insecure-context polyfill and authenticated-proxy markers once per HTML document. */
 export function injectPolyfill(html: string): string {
   let injected = html
   if (!injected.includes('data-maestro-polyfill')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${RANDOM_UUID_POLYFILL}`)
   if (!injected.includes('data-maestro-trusted-proxy')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${TRUSTED_PROXY_MARKER}`)
+  if (!injected.includes('data-maestro-loopback-transport')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${LOOPBACK_TRANSPORT_MARKER}`)
   return injected
 }
 
