@@ -191,14 +191,24 @@ const LOGIN_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/apple-touch-icon.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
   '/apple-touch-icon-precomposed.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
   '/favicon.ico': { file: 'apple-touch-icon.png', contentType: 'image/png' },
+  '/__maestro/icon-192.png': { file: 'icon-192.png', contentType: 'image/png' },
+  '/__maestro/icon-512.png': { file: 'icon-512.png', contentType: 'image/png' },
+  '/icon-192.png': { file: 'icon-192.png', contentType: 'image/png' },
+  '/icon-512.png': { file: 'icon-512.png', contentType: 'image/png' },
 }
 
 const LOGIN_PAGE = (error: boolean) => `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A84FF">
 <title>Maestro access</title>
 <link rel="stylesheet" href="/__maestro/login.css">
 <link rel="apple-touch-icon" sizes="180x180" href="/__maestro/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="192x192" href="/__maestro/icon-192.png">
+<link rel="apple-touch-icon" sizes="512x512" href="/__maestro/icon-512.png">
 <link rel="icon" type="image/png" sizes="180x180" href="/__maestro/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/__maestro/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/__maestro/icon-512.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <script>window.__MAESTRO_LOGIN_ERROR__=${error ? 'true' : 'false'}</script>
 </head><body><script>if(matchMedia('(prefers-color-scheme: dark)').matches)document.body.setAttribute('data-ds-dark-theme','')</script><main>
 <form data-maestro-login-fallback method="post" action="/maestro-login" class="maestro-login-card${error ? ' maestro-shake' : ''}">
@@ -535,8 +545,43 @@ async function compressIfEligible(
       // PIN cookie even after the top-level navigation authenticated. The
       // manifest is static app metadata, so expose this one exact asset while
       // keeping every UI/API route behind the PIN gate.
-      if (req.method === 'GET' && new URL(req.url ?? '/', 'http://proxy').pathname === '/manifest.webmanifest') {
-        proxyRequest(req, res)
+      // Inject Maestro icons for Chrome PWA install on all OS (Android/Desktop/iOS)
+      if ((req.method === 'GET' || req.method === 'HEAD') && new URL(req.url ?? '/', 'http://proxy').pathname === '/manifest.webmanifest') {
+        try {
+          const upstreamBody = await new Promise<string>((resolve, reject) => {
+            const upReq = httpRequest({ host: upstream.host, port: upstream.port, path: '/manifest.webmanifest', method: 'GET', headers: { host: `${upstream.host}:${upstream.port}` } }, (upRes) => {
+              let d = ''
+              upRes.on('data', (c: Buffer) => d += c.toString())
+              upRes.on('end', () => resolve(d))
+              upRes.on('error', reject)
+            })
+            upReq.on('error', reject)
+            upReq.end()
+          })
+          let manifest: any = {}
+          try { manifest = JSON.parse(upstreamBody) } catch { manifest = {} }
+          const maestroIcons = [
+            { src: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png', purpose: 'any' },
+            { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+            { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+            { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+            { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          ]
+          const existing: any[] = Array.isArray(manifest.icons) ? manifest.icons : []
+          manifest.icons = [...existing, ...maestroIcons.filter(mi => !existing.some((e: any) => e.src === mi.src && e.purpose === mi.purpose))]
+          manifest.theme_color = manifest.theme_color || '#0A84FF'
+          manifest.background_color = manifest.background_color || '#ffffff'
+          const body = JSON.stringify(manifest)
+          if (req.method === 'HEAD') {
+            res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8', 'content-length': String(Buffer.byteLength(body)), 'cache-control': 'no-cache' })
+            res.end()
+          } else {
+            res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'no-cache' })
+            res.end(body)
+          }
+        } catch {
+          proxyRequest(req, res)
+        }
         return
       }
       // GitLab webhooks hit the public tunnel hostname without a PIN cookie.
