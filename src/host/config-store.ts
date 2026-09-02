@@ -40,6 +40,10 @@ export interface MaestroUserConfig {
   lastTunnelRunning?: boolean
   /** Gate LAN access behind a second PIN. Default false — LAN stays open. */
   lanPinEnabled?: boolean
+  /** Local/LAN proxy listener port; unset = no local listener (backward compatible). */
+  lanPort?: number
+  /** Bind host for the local proxy listener; defaults to '0.0.0.0'. */
+  lanHost?: string
   /** Telegram Bot API credentials for one-way notifications. */
   telegramBotToken?: string
   telegramChatId?: string
