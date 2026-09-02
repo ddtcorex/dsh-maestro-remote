@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1] - 2026-09-02
+
+### Fixed
+
+- **Deployment error for custom ports** — suppress deploymentError for explicit custom ports (#41).
+- **Maestro PWA & branding** — favicon/manifest/title (#40).
+
+
 ## [0.2.0] - 2026-09-02
 
 ### Added
