@@ -19,16 +19,16 @@ afterEach(async () => {
 })
 
 interface Controller {
-  proxyStatus(): { running: boolean; port?: number; lanPort?: number; lanUrls: string[]; errorMessage?: string }
+  proxyStatus(): { running: boolean; port?: number; lanPort?: number; lanUrls: string[]; errorMessage?: string; deploymentError?: string }
   getPin(): Promise<string>
   initialReady(): Promise<void>
   stop(): Promise<unknown>
 }
 
-function makeCtx(): { ctx: any; teardown: () => void } {
+function makeCtx(webPort = 1): { ctx: any; teardown: () => void } {
   const disposers: Array<() => void> = []
   const ctx: any = {
-    webServer: { port: 1 },
+    webServer: { port: webPort },
     effect: (fn: () => (() => void) | void) => {
       const disposer = fn()
       if (typeof disposer === 'function') disposers.push(disposer)
@@ -41,9 +41,9 @@ function makeCtx(): { ctx: any; teardown: () => void } {
   return { ctx, teardown: () => { for (const d of disposers) d() } }
 }
 
-async function boot(settings: Record<string, unknown>): Promise<{ ctx: any; tunnel: Controller; teardown: () => void }> {
+async function boot(settings: Record<string, unknown>, webPort = 1): Promise<{ ctx: any; tunnel: Controller; teardown: () => void }> {
   await writeLegacyPatch(settings, { dshHome: home })
-  const { ctx, teardown } = makeCtx()
+  const { ctx, teardown } = makeCtx(webPort)
   apply(ctx)
   const tunnel = ctx.maestroTunnel as Controller
   await tunnel.initialReady()
@@ -109,6 +109,45 @@ describe('maestroTunnel LAN proxy listener', () => {
     const { ctx, tunnel, teardown } = await boot({})
     try {
       expect(tunnel.proxyStatus().lanPort).toBeUndefined()
+    } finally {
+      await ctx.maestroTunnel?.stop()
+      teardown()
+    }
+  })
+
+  it('fail-closes the half-deploy: webserver off :3080 with no lanPort surfaces a deployment error', async () => {
+    // makeCtx webPort defaults to 1 (never the canonical 3080): the exact
+    // 2026-09-02 shape where the profile moved the webserver away but the
+    // LAN proxy was never enabled — previously :3080 silently went dead.
+    const { ctx, tunnel, teardown } = await boot({})
+    try {
+      const status = tunnel.proxyStatus()
+      expect(status.deploymentError).toBeTruthy()
+      expect(status.deploymentError).toContain('lanPort is not configured')
+      expect(status.deploymentError).toContain('http://127.0.0.1:3080')
+      expect(status.lanPort).toBeUndefined()
+    } finally {
+      await ctx.maestroTunnel?.stop()
+      teardown()
+    }
+  })
+
+  it('no deployment error when the webserver is on :3080 and lanPort is unset', async () => {
+    const { ctx, tunnel, teardown } = await boot({}, 3080)
+    try {
+      expect(tunnel.proxyStatus().deploymentError).toBeUndefined()
+      expect(tunnel.proxyStatus().lanPort).toBeUndefined()
+    } finally {
+      await ctx.maestroTunnel?.stop()
+      teardown()
+    }
+  })
+
+  it('no deployment error when lanPort is configured (webserver moved is intentional)', async () => {
+    const { ctx, tunnel, teardown } = await boot({ lanPort: 0 }, 3082)
+    try {
+      expect(tunnel.proxyStatus().deploymentError).toBeUndefined()
+      expect(typeof tunnel.proxyStatus().lanPort).toBe('number')
     } finally {
       await ctx.maestroTunnel?.stop()
       teardown()

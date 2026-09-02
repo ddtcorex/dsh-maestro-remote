@@ -170,6 +170,13 @@ export interface ProxyStatus {
   lanPort?: number
   lanUrls: string[]
   errorMessage?: string
+  /**
+   * Fail-closed deployment contract (2026-09-02 local-pin-gate): when the raw
+   * webserver is NOT on the canonical :3080 but no LAN proxy port is
+   * configured, the canonical local URL silently dies. Surfaced here so the
+   * operator sees the misconfiguration instead of a dead port.
+   */
+  deploymentError?: string
 }
 
 export interface TunnelController {
@@ -316,6 +323,18 @@ export function apply(ctx: Context): void {
         }
         proxyState = { running: true, port: handle.port, lanUrls: lanUrls(handle.port) }
         proxyState.lanPort = lanPort
+        // Fail-closed deployment contract (2026-09-02 local-pin-gate): moving
+        // the raw webserver off the canonical :3080 is only valid together
+        // with a LAN proxy on that port. If the webserver is elsewhere AND
+        // lanPort is unset, the canonical local URL silently dies — surface it
+        // instead of booting a topology nobody can reach by the well-known URL.
+        const webserverPort = (ctx as any).webServer?.port
+        proxyState.deploymentError = undefined
+        if (webserverPort !== undefined && webserverPort !== 3080 && bootConfig.lanPort === undefined) {
+          const msg = `maestro-tunnel: webserver runs on ${webserverPort} but lanPort is not configured — the canonical local URL http://127.0.0.1:3080/ is NOT served; set domains.tunnel.lanPort=3080 (or move the webserver back to 3080)`
+          ctx.logger?.warn?.(msg)
+          proxyState.deploymentError = msg
+        }
         // Named-tunnel ingress must route public traffic at the port actually
         // bound, not the configured request that may have been walked past.
         proxyPort = handle.port
