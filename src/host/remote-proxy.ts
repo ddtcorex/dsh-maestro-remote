@@ -187,12 +187,15 @@ const DEFAULT_LOGIN_ASSETS_DIR = join(packageRootDir(fileURLToPath(import.meta.u
 const LOGIN_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/__maestro/login.js': { file: 'login.js', contentType: 'text/javascript; charset=utf-8' },
   '/__maestro/login.css': { file: 'login.css', contentType: 'text/css; charset=utf-8' },
+  '/__maestro/apple-touch-icon.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
 }
 
 const LOGIN_PAGE = (error: boolean) => `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Maestro access</title>
 <link rel="stylesheet" href="/__maestro/login.css">
+<link rel="apple-touch-icon" sizes="180x180" href="/__maestro/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="180x180" href="/__maestro/apple-touch-icon.png">
 <script>window.__MAESTRO_LOGIN_ERROR__=${error ? 'true' : 'false'}</script>
 </head><body><script>if(matchMedia('(prefers-color-scheme: dark)').matches)document.body.setAttribute('data-ds-dark-theme','')</script><main>
 <form data-maestro-login-fallback method="post" action="/maestro-login" class="maestro-login-card${error ? ' maestro-shake' : ''}">
