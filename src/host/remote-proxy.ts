@@ -188,6 +188,9 @@ const LOGIN_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/__maestro/login.js': { file: 'login.js', contentType: 'text/javascript; charset=utf-8' },
   '/__maestro/login.css': { file: 'login.css', contentType: 'text/css; charset=utf-8' },
   '/__maestro/apple-touch-icon.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
+  '/apple-touch-icon.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
+  '/apple-touch-icon-precomposed.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
+  '/favicon.ico': { file: 'apple-touch-icon.png', contentType: 'image/png' },
 }
 
 const LOGIN_PAGE = (error: boolean) => `<!doctype html><html lang="en"><head>
@@ -524,7 +527,7 @@ async function compressIfEligible(
         await handleLogin(req, res)
         return
       }
-      if (req.method === 'GET' && req.url?.startsWith('/__maestro/')) {
+      if ((req.method === 'GET' || req.method === 'HEAD') && req.url !== undefined && LOGIN_ASSETS[req.url.split('?')[0]] !== undefined) {
         await serveLoginAsset(req.url, res)
         return
       }
