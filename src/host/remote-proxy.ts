@@ -72,6 +72,7 @@ const TRUSTED_PROXY_MARKER = '<script data-maestro-trusted-proxy="1">globalThis.
 // declare ClientTransportHooks.ownsHost without replacing fetch/openStream and
 // the browser keeps normal same-origin RPC while host-backed settings unlock.
 const LOOPBACK_TRANSPORT_MARKER = '<script data-maestro-loopback-transport="1">globalThis.__DSH_TRANSPORT__=Object.assign(globalThis.__DSH_TRANSPORT__||{},{ownsHost:true});</script>'
+const TITLE_MARKER = '<script data-maestro-title="1">try{document.title="Maestro";new MutationObserver(function(){if(document.title!=="Maestro")document.title="Maestro"}).observe(document.querySelector("title"),{childList:true,characterData:true,subtree:true})}catch(e){}</script>'
 
 /** Inject the insecure-context polyfill and authenticated-proxy markers once per HTML document. */
 export function injectPolyfill(html: string): string {
@@ -79,6 +80,13 @@ export function injectPolyfill(html: string): string {
   if (!injected.includes('data-maestro-polyfill')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${RANDOM_UUID_POLYFILL}`)
   if (!injected.includes('data-maestro-trusted-proxy')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${TRUSTED_PROXY_MARKER}`)
   if (!injected.includes('data-maestro-loopback-transport')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${LOOPBACK_TRANSPORT_MARKER}`)
+  if (!injected.includes('data-maestro-title')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${TITLE_MARKER}`)
+  // Unify browser tab title to Maestro (was DeepSeek Harness)
+  if (/<title[^>]*>.*?<\/title>/i.test(injected)) {
+    injected = injected.replace(/<title[^>]*>.*?<\/title>/i, '<title>Maestro</title>')
+  } else {
+    injected = injected.replace(/<head[^>]*>/i, (m) => `${m}<title>Maestro</title>`)
+  }
   return injected
 }
 
@@ -190,7 +198,7 @@ const LOGIN_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/__maestro/apple-touch-icon.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
   '/apple-touch-icon.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
   '/apple-touch-icon-precomposed.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
-  '/favicon.ico': { file: 'favicon.ico', contentType: 'image/png' },
+  '/favicon.ico': { file: 'favicon.ico', contentType: 'image/x-icon' },
   '/favicon.svg': { file: 'favicon.svg', contentType: 'image/svg+xml' },
   '/__maestro/favicon.svg': { file: 'favicon.svg', contentType: 'image/svg+xml' },
   '/favicon-32.png': { file: 'favicon-32.png', contentType: 'image/png' },
@@ -204,7 +212,7 @@ const LOGIN_ASSETS: Record<string, { file: string; contentType: string }> = {
 const LOGIN_PAGE = (error: boolean) => `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0A84FF">
-<title>Maestro access</title>
+<title>Maestro</title>
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
@@ -577,6 +585,8 @@ async function compressIfEligible(
           ]
           const existing: any[] = Array.isArray(manifest.icons) ? manifest.icons : []
           manifest.icons = [...existing, ...maestroIcons.filter(mi => !existing.some((e: any) => e.src === mi.src && e.purpose === mi.purpose))]
+          manifest.name = 'Maestro'
+          manifest.short_name = 'Maestro'
           manifest.theme_color = manifest.theme_color || '#0A84FF'
           manifest.background_color = manifest.background_color || '#ffffff'
           const body = JSON.stringify(manifest)
