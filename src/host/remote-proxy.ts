@@ -72,6 +72,8 @@ const TRUSTED_PROXY_MARKER = '<script data-maestro-trusted-proxy="1">globalThis.
 // declare ClientTransportHooks.ownsHost without replacing fetch/openStream and
 // the browser keeps normal same-origin RPC while host-backed settings unlock.
 const LOOPBACK_TRANSPORT_MARKER = '<script data-maestro-loopback-transport="1">globalThis.__DSH_TRANSPORT__=Object.assign(globalThis.__DSH_TRANSPORT__||{},{ownsHost:true});</script>'
+const TITLE_MARKER = '<script data-maestro-title="1">try{function m(){var t=document.title;if(t==="DSH Local Build"||t==="DeepSeek Harness"||t==="DSH")document.title="Maestro";else if(t.indexOf("DSH Local Build")!==-1)document.title=t.replace("DSH Local Build","Maestro");else if(t.indexOf("DeepSeek Harness")!==-1)document.title=t.replace("DeepSeek Harness","Maestro");else if(t.indexOf("DSH")!==-1&&t.indexOf("Maestro")===-1)document.title=t.replace("DSH","Maestro");else if(t&&t.indexOf("Maestro")===-1)document.title=t+" - Maestro";}m();new MutationObserver(m).observe(document.querySelector("title")||document.head,{childList:true,characterData:true,subtree:true})}catch(e){}</script>'
+const FAVICON_LINKS = '<link rel="icon" href="/favicon.ico" sizes="32x32"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png"><link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">'
 
 /** Inject the insecure-context polyfill and authenticated-proxy markers once per HTML document. */
 export function injectPolyfill(html: string): string {
@@ -79,6 +81,14 @@ export function injectPolyfill(html: string): string {
   if (!injected.includes('data-maestro-polyfill')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${RANDOM_UUID_POLYFILL}`)
   if (!injected.includes('data-maestro-trusted-proxy')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${TRUSTED_PROXY_MARKER}`)
   if (!injected.includes('data-maestro-loopback-transport')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${LOOPBACK_TRANSPORT_MARKER}`)
+  if (!injected.includes('data-maestro-title')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${TITLE_MARKER}`)
+  if (!injected.includes('data-maestro-favicon')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${FAVICON_LINKS.replace('<link', '<link data-maestro-favicon="1"')}`)
+  // Unify browser tab title to Maestro (was DeepSeek Harness)
+  if (/<title[^>]*>.*?<\/title>/i.test(injected)) {
+    injected = injected.replace(/<title[^>]*>.*?<\/title>/i, '<title>Maestro</title>')
+  } else {
+    injected = injected.replace(/<head[^>]*>/i, (m) => `${m}<title>Maestro</title>`)
+  }
   return injected
 }
 
@@ -187,19 +197,44 @@ const DEFAULT_LOGIN_ASSETS_DIR = join(packageRootDir(fileURLToPath(import.meta.u
 const LOGIN_ASSETS: Record<string, { file: string; contentType: string }> = {
   '/__maestro/login.js': { file: 'login.js', contentType: 'text/javascript; charset=utf-8' },
   '/__maestro/login.css': { file: 'login.css', contentType: 'text/css; charset=utf-8' },
+  '/__maestro/apple-touch-icon.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
+  '/apple-touch-icon.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
+  '/apple-touch-icon-precomposed.png': { file: 'apple-touch-icon.png', contentType: 'image/png' },
+  '/favicon.ico': { file: 'favicon.ico', contentType: 'image/x-icon' },
+  '/favicon.svg': { file: 'favicon.svg', contentType: 'image/svg+xml' },
+  '/__maestro/favicon.svg': { file: 'favicon.svg', contentType: 'image/svg+xml' },
+  '/favicon-32.png': { file: 'favicon-32.png', contentType: 'image/png' },
+  '/favicon-16.png': { file: 'favicon-16.png', contentType: 'image/png' },
+  '/__maestro/icon-192.png': { file: 'icon-192.png', contentType: 'image/png' },
+  '/__maestro/icon-512.png': { file: 'icon-512.png', contentType: 'image/png' },
+  '/icon-192.png': { file: 'icon-192.png', contentType: 'image/png' },
+  '/icon-512.png': { file: 'icon-512.png', contentType: 'image/png' },
 }
 
 const LOGIN_PAGE = (error: boolean) => `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Maestro access</title>
+<meta name="theme-color" content="#0A84FF">
+<title>Maestro</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <link rel="stylesheet" href="/__maestro/login.css">
+<link rel="apple-touch-icon" sizes="180x180" href="/__maestro/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="192x192" href="/__maestro/icon-192.png">
+<link rel="apple-touch-icon" sizes="512x512" href="/__maestro/icon-512.png">
+<link rel="icon" type="image/png" sizes="180x180" href="/__maestro/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/__maestro/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/__maestro/icon-512.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <script>window.__MAESTRO_LOGIN_ERROR__=${error ? 'true' : 'false'}</script>
 </head><body><script>if(matchMedia('(prefers-color-scheme: dark)').matches)document.body.setAttribute('data-ds-dark-theme','')</script><main>
 <form data-maestro-login-fallback method="post" action="/maestro-login" class="maestro-login-card${error ? ' maestro-shake' : ''}">
-<p class="maestro-login-title">Maestro access</p>
-<p class="maestro-login-copy${error ? ' maestro-login-error' : ''}">${error ? 'Wrong PIN, try again.' : 'This public address is PIN-protected.'}</p>
-<span class="maestro-login-input maestro-login-native-input"><input id="maestro-login-pin" name="pin" inputmode="numeric" maxlength="8" autofocus required aria-label="Access PIN" placeholder="8-digit PIN" autocomplete="one-time-code"></span>
+<span class="maestro-login-badge" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 16 16" fill="none"><path d="M2 11 L5 4 L8 9 L11 4 L14 11" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+<div class="maestro-login-head"><h1 class="maestro-login-title">Maestro access</h1><p class="maestro-login-copy${error ? ' maestro-login-error' : ''}">${error ? 'Wrong PIN, try again.' : 'This public address is PIN-protected.'}</p></div>
+<span class="maestro-login-input maestro-login-native-input"><input id="maestro-login-pin" name="pin" inputmode="numeric" maxlength="8" autofocus required aria-label="Access PIN" placeholder="••••••••" autocomplete="one-time-code"></span>
 <button type="submit" class="maestro-login-submit">Enter</button>
+<p class="maestro-login-foot">PIN from Maestro Settings → Tunnel · rotates on demand</p>
 </form>
 <div id="maestro-login-root"></div>
 </main><script src="/__maestro/login.js"></script></body></html>`
@@ -520,7 +555,7 @@ async function compressIfEligible(
         await handleLogin(req, res)
         return
       }
-      if (req.method === 'GET' && req.url?.startsWith('/__maestro/')) {
+      if ((req.method === 'GET' || req.method === 'HEAD') && req.url !== undefined && LOGIN_ASSETS[req.url.split('?')[0]] !== undefined) {
         await serveLoginAsset(req.url, res)
         return
       }
@@ -528,8 +563,45 @@ async function compressIfEligible(
       // PIN cookie even after the top-level navigation authenticated. The
       // manifest is static app metadata, so expose this one exact asset while
       // keeping every UI/API route behind the PIN gate.
-      if (req.method === 'GET' && new URL(req.url ?? '/', 'http://proxy').pathname === '/manifest.webmanifest') {
-        proxyRequest(req, res)
+      // Inject Maestro icons for Chrome PWA install on all OS (Android/Desktop/iOS)
+      if ((req.method === 'GET' || req.method === 'HEAD') && new URL(req.url ?? '/', 'http://proxy').pathname === '/manifest.webmanifest') {
+        try {
+          const upstreamBody = await new Promise<string>((resolve, reject) => {
+            const upReq = httpRequest({ host: upstream.host, port: upstream.port, path: '/manifest.webmanifest', method: 'GET', headers: { host: `${upstream.host}:${upstream.port}` } }, (upRes) => {
+              let d = ''
+              upRes.on('data', (c: Buffer) => d += c.toString())
+              upRes.on('end', () => resolve(d))
+              upRes.on('error', reject)
+            })
+            upReq.on('error', reject)
+            upReq.end()
+          })
+          let manifest: any = {}
+          try { manifest = JSON.parse(upstreamBody) } catch { manifest = {} }
+          const maestroIcons = [
+            { src: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png', purpose: 'any' },
+            { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+            { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+            { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+            { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          ]
+          const existing: any[] = Array.isArray(manifest.icons) ? manifest.icons : []
+          manifest.icons = [...existing, ...maestroIcons.filter(mi => !existing.some((e: any) => e.src === mi.src && e.purpose === mi.purpose))]
+          manifest.name = 'Maestro'
+          manifest.short_name = 'Maestro'
+          manifest.theme_color = manifest.theme_color || '#0A84FF'
+          manifest.background_color = manifest.background_color || '#ffffff'
+          const body = JSON.stringify(manifest)
+          if (req.method === 'HEAD') {
+            res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8', 'content-length': String(Buffer.byteLength(body)), 'cache-control': 'no-cache' })
+            res.end()
+          } else {
+            res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'no-cache' })
+            res.end(body)
+          }
+        } catch {
+          proxyRequest(req, res)
+        }
         return
       }
       // GitLab webhooks hit the public tunnel hostname without a PIN cookie.

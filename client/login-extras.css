@@ -7,74 +7,125 @@ body {
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
   font-family: var(--dsw-font-family);
+  -webkit-font-smoothing: antialiased;
 }
 
 .maestro-login-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
-  width: min(360px, calc(100vw - 48px));
+  gap: 20px;
+  width: min(380px, calc(100vw - 32px));
   box-sizing: border-box;
-  padding: 44px 40px 40px;
+  padding: 32px 28px 28px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 16px;
   background: var(--dsw-alias-bg-layer-2);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--dsw-alias-border-l1);
 }
 
-@media (max-width: 400px) {
-  .maestro-login-card {
-    padding: 32px 20px 28px;
-    padding-left: max(20px, env(safe-area-inset-left));
-    padding-right: max(20px, env(safe-area-inset-right));
-    margin-bottom: max(0px, env(safe-area-inset-bottom));
-  }
+.maestro-login-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #0A84FF;
+  color: #fff;
+  flex: none;
+  box-shadow: 0 2px 8px rgba(10, 132, 255, 0.24);
+}
+
+.maestro-login-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: center;
 }
 
 .maestro-login-title {
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
+  line-height: 22px;
+  letter-spacing: -0.01em;
   color: var(--dsw-alias-label-primary);
 }
 
 .maestro-login-copy {
   margin: 0;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 18px;
   text-align: center;
   color: var(--dsw-alias-label-secondary);
+  max-width: 280px;
 }
 
 .maestro-login-error { color: var(--dsw-alias-state-error-primary); }
 
 .maestro-login-input {
   display: flex;
-  width: min(220px, 100%);
+  width: min(260px, 100%);
 }
 
 .maestro-login-input > span { flex: 1; min-width: 0; }
 
 .maestro-login-input input {
   text-align: center;
-  letter-spacing: 4px;
-  font-size: 16px;
+  letter-spacing: 6px;
+  font-size: 18px;
+  font-weight: 500;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/*
- * The pre-enhancement fallback form (data-maestro-login-fallback) renders a
- * bare <input>/<button> — it can't use the Input/Button components, which
- * are only available inside the React bundle. These mirror Input.module.css
- * and Button.module.css's primary/md variant so the fallback still looks
- * like the rest of the design system instead of an unstyled browser default.
- */
+/* Make the DSH Input taller for the PIN gate (44px premium) */
+.maestro-login-input .e {
+  height: 44px !important;
+  border-radius: 10px !important;
+  padding: 0 12px !important;
+  font-size: 18px !important;
+}
+
+.maestro-login-btn {
+  width: min(260px, 100%) !important;
+  height: 40px !important;
+  border-radius: 20px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+}
+
+.maestro-login-foot {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 14px;
+  text-align: center;
+  color: var(--dsw-alias-label-tertiary);
+  max-width: 260px;
+}
+
+@media (max-width: 400px) {
+  .maestro-login-card {
+    gap: 18px;
+    padding: 28px 20px 24px;
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
+    margin-bottom: max(0px, env(safe-area-inset-bottom));
+    border-radius: 16px;
+  }
+  .maestro-login-copy { font-size: 13px; }
+  .maestro-login-foot { font-size: 11px; }
+}
+
+/* Fallback native form (no JS) — mirror Input/Button primary/md so it looks identical */
 .maestro-login-native-input {
   align-items: center;
-  height: 32px;
-  padding: 0 8px;
+  height: 44px;
+  padding: 0 12px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--dsw-alias-bg-layer-1);
   box-sizing: border-box;
 }
@@ -86,27 +137,36 @@ body {
   outline: none;
   background: transparent;
   color: var(--dsw-alias-label-primary);
+  text-align: center;
+  letter-spacing: 6px;
+  font-size: 18px;
+  font-weight: 500;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.maestro-login-native-input input::placeholder { color: var(--dsw-alias-label-dimmed); }
+.maestro-login-native-input input::placeholder { color: var(--dsw-alias-label-dimmed); letter-spacing: 2px; font-size: 14px; font-weight: 400; font-family: var(--dsw-font-family); }
 
 .maestro-login-submit {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 36px;
+  width: min(260px, 100%);
+  height: 40px;
   padding: 0 14px;
   border: none;
-  border-radius: 18px;
+  border-radius: 20px;
   font-family: inherit;
   font-size: 14px;
+  font-weight: 600;
   line-height: 22px;
   cursor: pointer;
   background: var(--dsw-alias-button-primary-fill);
   color: var(--dsw-alias-label-primary-foreground);
+  box-sizing: border-box;
 }
 
 .maestro-login-submit:hover { background: var(--dsw-alias-button-primary-hover); }
+.maestro-login-submit:active { transform: scale(0.98); }
 
 .maestro-shake { animation: maestro-shake 0.4s var(--ds-ease-in-out); }
 

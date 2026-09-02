@@ -21,14 +21,20 @@ function LoginCard() {
 
   return (
     <form method="post" action="/maestro-login" className={`maestro-login-card${error ? ' maestro-shake' : ''}`}>
-      <BrandWordmark size={22} />
-      <p className={`maestro-login-copy${error ? ' maestro-login-error' : ''}`}>
-        {error ? 'Wrong PIN, try again.' : 'This public address is PIN-protected.'}
-      </p>
-      <span className="maestro-login-input">
-        <Input name="token" inputMode="numeric" maxLength={8} autoFocus required aria-label="Access PIN" placeholder="8-digit PIN" />
+      <span className="maestro-login-badge" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 16 16" fill="none"><path d="M2 11 L5 4 L8 9 L11 4 L14 11" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </span>
-      <Button variant="primary" type="submit">Enter</Button>
+      <div className="maestro-login-head">
+        <h1 className="maestro-login-title">Maestro access</h1>
+        <p className={`maestro-login-copy${error ? ' maestro-login-error' : ''}`}>
+          {error ? 'Wrong PIN, try again.' : 'This public address is PIN-protected.'}
+        </p>
+      </div>
+      <span className="maestro-login-input">
+        <Input name="pin" inputMode="numeric" maxLength={8} autoFocus required aria-label="Access PIN" placeholder="••••••••" autoComplete="one-time-code" />
+      </span>
+      <Button variant="primary" type="submit" className="maestro-login-btn">Enter</Button>
+      <p className="maestro-login-foot">PIN from Maestro Settings → Tunnel · rotates on demand</p>
     </form>
   )
 }
