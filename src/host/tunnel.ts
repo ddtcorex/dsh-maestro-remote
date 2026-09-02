@@ -329,8 +329,12 @@ export function apply(ctx: Context): void {
         // lanPort is unset, the canonical local URL silently dies — surface it
         // instead of booting a topology nobody can reach by the well-known URL.
         const webserverPort = (ctx as any).webServer?.port
+        // A port explicitly requested via `--port` (webStartup.port) marks an
+        // intentional off-canonical run (dry-boots, isolated DSH_HOME where
+        // :3080 is not part of the contract) — do not flag it as a half-deploy.
+        const explicitPort = (ctx as any).get?.('webStartup')?.port
         proxyState.deploymentError = undefined
-        if (webserverPort !== undefined && webserverPort !== 3080 && bootConfig.lanPort === undefined) {
+        if (webserverPort !== undefined && webserverPort !== 3080 && bootConfig.lanPort === undefined && explicitPort === undefined) {
           const msg = `maestro-tunnel: webserver runs on ${webserverPort} but lanPort is not configured — the canonical local URL http://127.0.0.1:3080/ is NOT served; set domains.tunnel.lanPort=3080 (or move the webserver back to 3080)`
           ctx.logger?.warn?.(msg)
           proxyState.deploymentError = msg

@@ -25,7 +25,7 @@ interface Controller {
   stop(): Promise<unknown>
 }
 
-function makeCtx(webPort = 1): { ctx: any; teardown: () => void } {
+function makeCtx(webPort = 1, webStartupPort?: number): { ctx: any; teardown: () => void } {
   const disposers: Array<() => void> = []
   const ctx: any = {
     webServer: { port: webPort },
@@ -35,15 +35,15 @@ function makeCtx(webPort = 1): { ctx: any; teardown: () => void } {
       return disposer
     },
     provide: (name: string, value: unknown) => { ctx[name] = value },
-    get: () => undefined,
+    get: (name: string) => name === 'webStartup' ? (webStartupPort === undefined ? undefined : { port: webStartupPort }) : undefined,
     logger: undefined,
   }
   return { ctx, teardown: () => { for (const d of disposers) d() } }
 }
 
-async function boot(settings: Record<string, unknown>, webPort = 1): Promise<{ ctx: any; tunnel: Controller; teardown: () => void }> {
+async function boot(settings: Record<string, unknown>, webPort = 1, webStartupPort?: number): Promise<{ ctx: any; tunnel: Controller; teardown: () => void }> {
   await writeLegacyPatch(settings, { dshHome: home })
-  const { ctx, teardown } = makeCtx(webPort)
+  const { ctx, teardown } = makeCtx(webPort, webStartupPort)
   apply(ctx)
   const tunnel = ctx.maestroTunnel as Controller
   await tunnel.initialReady()
@@ -134,6 +134,20 @@ describe('maestroTunnel LAN proxy listener', () => {
 
   it('no deployment error when the webserver is on :3080 and lanPort is unset', async () => {
     const { ctx, tunnel, teardown } = await boot({}, 3080)
+    try {
+      expect(tunnel.proxyStatus().deploymentError).toBeUndefined()
+      expect(tunnel.proxyStatus().lanPort).toBeUndefined()
+    } finally {
+      await ctx.maestroTunnel?.stop()
+      teardown()
+    }
+  })
+
+  it('suppresses the deployment error for an explicit custom port (dry-boot via --port)', async () => {
+    // A dry-boot passes `--port <ephemeral>` (webStartup.port set): the
+    // canonical :3080 is intentionally not part of that isolated run, so the
+    // fail-closed gate must not flag it as a half-deploy.
+    const { ctx, tunnel, teardown } = await boot({}, 4567, 4567)
     try {
       expect(tunnel.proxyStatus().deploymentError).toBeUndefined()
       expect(tunnel.proxyStatus().lanPort).toBeUndefined()
