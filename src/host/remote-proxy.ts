@@ -73,6 +73,7 @@ const TRUSTED_PROXY_MARKER = '<script data-maestro-trusted-proxy="1">globalThis.
 // the browser keeps normal same-origin RPC while host-backed settings unlock.
 const LOOPBACK_TRANSPORT_MARKER = '<script data-maestro-loopback-transport="1">globalThis.__DSH_TRANSPORT__=Object.assign(globalThis.__DSH_TRANSPORT__||{},{ownsHost:true});</script>'
 const TITLE_MARKER = '<script data-maestro-title="1">try{function m(){var t=document.title;if(t==="DSH Local Build"||t==="DeepSeek Harness"||t==="DSH")document.title="Maestro";else if(t.indexOf("DSH Local Build")!==-1)document.title=t.replace("DSH Local Build","Maestro");else if(t.indexOf("DeepSeek Harness")!==-1)document.title=t.replace("DeepSeek Harness","Maestro");else if(t.indexOf("DSH")!==-1&&t.indexOf("Maestro")===-1)document.title=t.replace("DSH","Maestro");else if(t&&t.indexOf("Maestro")===-1)document.title=t+" - Maestro";}m();new MutationObserver(m).observe(document.querySelector("title")||document.head,{childList:true,characterData:true,subtree:true})}catch(e){}</script>'
+const FAVICON_LINKS = '<link rel="icon" href="/favicon.ico" sizes="32x32"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png"><link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">'
 
 /** Inject the insecure-context polyfill and authenticated-proxy markers once per HTML document. */
 export function injectPolyfill(html: string): string {
@@ -81,6 +82,7 @@ export function injectPolyfill(html: string): string {
   if (!injected.includes('data-maestro-trusted-proxy')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${TRUSTED_PROXY_MARKER}`)
   if (!injected.includes('data-maestro-loopback-transport')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${LOOPBACK_TRANSPORT_MARKER}`)
   if (!injected.includes('data-maestro-title')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${TITLE_MARKER}`)
+  if (!injected.includes('data-maestro-favicon')) injected = injected.replace(/<head[^>]*>/i, (m) => `${m}${FAVICON_LINKS.replace('<link', '<link data-maestro-favicon="1"')}`)
   // Unify browser tab title to Maestro (was DeepSeek Harness)
   if (/<title[^>]*>.*?<\/title>/i.test(injected)) {
     injected = injected.replace(/<title[^>]*>.*?<\/title>/i, '<title>Maestro</title>')
