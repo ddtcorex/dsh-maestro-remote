@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-09-02
+
+### Fixed
+
+- **Models/settings surfaces now work through the tunnel and LAN proxy.**
+  The DSH browser client keys settings persistence to
+  `ctx.remote.$host.isLoopback`, which it derives from the page hostname — a
+  public tunnel or LAN hostname was never loopback, so the Settings → Models
+  tab failed with "settings are unavailable in this browser". The proxy now
+  declares `ClientTransportHooks.ownsHost` on every served HTML document
+  (behind the existing PIN gate), restoring host-backed settings while leaving
+  fetch/RPC and module loading untouched (PR #36).
+
 ## [0.1.3] - 2026-09-02
 
 ### Changed
