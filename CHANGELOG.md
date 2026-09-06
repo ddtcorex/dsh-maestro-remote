@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.2] - 2026-09-06
+
+### Fixed
+
+- **Stale `dsh-auth` cookie after a `dsh web` restart** — when the signing secret rotates on restart, a returning browser's `dsh-auth-*` cookie becomes invalid, and the proxy previously skipped `?token=` auto-mint whenever *any* `dsh-auth-*` cookie was present, causing a permanent 401 ("no session initialized") through the tunnel. The proxy now auto-recovers: on a 401 for a GET/HEAD index request it retries with `?token=` (stripping only the stale `dsh-auth-*` cookie), and on any other 401 or a rejected WebSocket upgrade it clears the stale cookie via `Set-Cookie` (#43).
+
 ## [0.2.1] - 2026-09-02
 
 ### Fixed
