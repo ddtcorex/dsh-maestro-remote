@@ -134,7 +134,8 @@ describe('PIN-only: DSH token auto-mint', () => {
       expect(requests[0]?.url).toBe('/')
       expect(requests[0]?.cookie).toContain('dsh-auth-old=stale-secret')
       expect(requests[1]?.url).toBe('/?token=tok-recovered')
-      expect(requests[1]?.cookie).toBeUndefined()
+      // Only dsh-auth-* is stripped on retry; unrelated cookies (maestro_pin) are preserved.
+      expect(requests[1]?.cookie).toBe('maestro_pin=12345678')
     } finally {
       await proxy.close()
       upstream.server.close()
