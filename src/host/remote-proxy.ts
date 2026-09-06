@@ -6,6 +6,7 @@ import type { Socket } from 'node:net'
 import { dirname, join } from 'node:path'
 import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { logAccess } from './access-log.js'
 import { secretsMatch } from './secure-compare.js'
 
 export interface ProxyUpstream { host: string; port: number }
@@ -286,7 +287,23 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
   const loginAssetsDir = options.loginAssetsDir ?? DEFAULT_LOGIN_ASSETS_DIR
   const loginRateLimit = options.loginRateLimit ?? DEFAULT_LOGIN_RATE_LIMIT
   const sockets = new Set<Socket>()
-  const server = createServer((req, res) => { void handleRequest(req, res) })
+  const server = createServer((req, res) => {
+    const start = Date.now()
+    const url = req.url ?? '/'
+    const method = req.method ?? 'GET'
+    res.on('finish', () => {
+      void logAccess({
+        kind: 'http',
+        method,
+        url,
+        status: res.statusCode,
+        durationMs: Date.now() - start,
+        host: req.headers.host,
+        hasAuthCookie: hasDshAuthCookie(req),
+      })
+    })
+    void handleRequest(req, res)
+  })
 
   const loginFailures = new Map<string, number[]>()
 
@@ -731,8 +748,11 @@ async function compressIfEligible(
   server.on('upgrade', (req, socket, head) => { void handleUpgrade(req, socket as Socket, head) })
 
   async function handleUpgrade(req: IncomingMessage, socket: Socket, head: Buffer): Promise<void> {
+    const start = Date.now()
+    const url = req.url ?? '/'
     socket.on('error', () => socket.destroy())
     if (!(await authorized(req))) {
+      void logAccess({ kind: 'ws', url, status: 401, durationMs: Date.now() - start, reason: 'unauthorized' })
       socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return
@@ -741,6 +761,7 @@ async function compressIfEligible(
     loopbackAuthority(headers, upstream)
     const upstreamReq = httpRequest({ host: upstream.host, port: upstream.port, method: req.method, path: req.url, headers, agent: false })
     upstreamReq.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
+      void logAccess({ kind: 'ws', url, status: 101, durationMs: Date.now() - start })
       const lines = ['HTTP/1.1 101 Switching Protocols']
       for (const [key, value] of Object.entries(upstreamRes.headers)) {
         if (value !== undefined) lines.push(`${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
@@ -758,6 +779,7 @@ async function compressIfEligible(
     })
     upstreamReq.on('response', (upstreamRes) => {
       if (upstreamRes.statusCode === 101) return
+      void logAccess({ kind: 'ws', url, status: upstreamRes.statusCode, durationMs: Date.now() - start, reason: 'upstream-rejected' })
       const lines = [`HTTP/1.1 ${upstreamRes.statusCode} ${upstreamRes.statusMessage ?? ''}`]
       for (const [key, value] of Object.entries(upstreamRes.headers)) {
         if (value !== undefined) lines.push(`${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
@@ -770,7 +792,10 @@ async function compressIfEligible(
       socket.end(`${lines.join('\r\n')}\r\n\r\n`)
       upstreamRes.resume()
     })
-    upstreamReq.on('error', () => socket.destroy())
+    upstreamReq.on('error', (err) => {
+      void logAccess({ kind: 'ws', url, status: 'error', durationMs: Date.now() - start, reason: err.message })
+      socket.destroy()
+    })
     if (head.length > 0) upstreamReq.write(head)
     upstreamReq.end()
   }
