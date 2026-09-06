@@ -1,35 +1,13 @@
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { createBrotliCompress, createGzip, constants as zlibConstants } from 'node:zlib'
 import { existsSync } from 'node:fs'
-import { appendFile, mkdir, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import type { Socket } from 'node:net'
 import { dirname, join } from 'node:path'
-import { homedir, networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
+import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { logAccess } from './access-log.js'
 import { secretsMatch } from './secure-compare.js'
-
-/**
- * Temporary diagnostic access log (2026-09-07): every request/WebSocket
- * upgrade through this proxy, appended as JSON lines to
- * `~/.dsh/dsh-maestro-remote/logs/access.log`. Traces a client-side iOS
- * WKWebView stall that leaves no error in the browser and no way to attach
- * a remote debugger. Never blocks or throws into request handling — a
- * logging failure is swallowed, not surfaced.
- */
-function accessLogPath(): string {
-  const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
-  return join(home, 'dsh-maestro-remote', 'logs', 'access.log')
-}
-
-async function logAccess(entry: Record<string, unknown>): Promise<void> {
-  try {
-    const path = accessLogPath()
-    await mkdir(dirname(path), { recursive: true })
-    await appendFile(path, `${JSON.stringify({ time: new Date().toISOString(), ...entry })}\n`)
-  } catch {
-    // Diagnostic-only: a log write failure must never affect request handling.
-  }
-}
 
 export interface ProxyUpstream { host: string; port: number }
 
