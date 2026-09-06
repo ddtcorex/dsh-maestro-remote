@@ -55,6 +55,41 @@ export function loopbackAuthority(headers: Record<string, string | string[] | un
   if (headers.origin !== undefined) headers.origin = `http://${authority}`
 }
 
+/**
+ * Strips all `dsh-auth-*` cookies from the Cookie header string.
+ * Used when retrying an index request with ?token= so upstream only evaluates the token.
+ */
+export function stripDshAuthCookies(cookieHeader: string | undefined): string {
+  if (!cookieHeader) return ''
+  const parts = cookieHeader.split(';')
+  const remaining: string[] = []
+  for (const part of parts) {
+    const trimmed = part.trim()
+    const eq = trimmed.indexOf('=')
+    const name = eq > 0 ? trimmed.slice(0, eq).trim() : trimmed
+    if (!name.startsWith('dsh-auth-')) {
+      remaining.push(trimmed)
+    }
+  }
+  return remaining.join('; ')
+}
+
+/**
+ * Generates Set-Cookie header strings that expire and clear any `dsh-auth-*`
+ * cookies present in the request's Cookie header.
+ */
+export function clearDshAuthCookies(cookieHeader: string | undefined): string[] {
+  if (!cookieHeader) return []
+  const cookies = parseCookies(cookieHeader)
+  const clearHeaders: string[] = []
+  for (const name of Object.keys(cookies)) {
+    if (name.startsWith('dsh-auth-')) {
+      clearHeaders.push(`${name}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; SameSite=Strict`)
+    }
+  }
+  return clearHeaders
+}
+
 // Copied verbatim from dsh-pocket's proven implementation rather than hand-rolled — it is
 // exercised in production there.
 const RANDOM_UUID_POLYFILL = `<script data-maestro-polyfill="1">!function(){try{if(self.crypto&&!self.crypto.randomUUID){self.crypto.randomUUID=function(){var b=new Uint8Array(16);self.crypto.getRandomValues(b);b[6]=b[6]&15|64;b[8]=b[8]&63|128;var h="";for(var i=0;i<16;i++){var x=b[i].toString(16);self.crypto.getRandomValues(b);h+=(x.length<2?"0":"")+x;if(i===3||i===5||i===7||i===9)h+="-";}return h;}}}catch(e){}}();</script>`
@@ -462,7 +497,52 @@ async function compressIfEligible(
 }
 
   /** Route one upstream response: HTML polyfill injection, compression, or raw pass-through. */
-  async function handleUpstreamResponse(req: IncomingMessage, upstreamRes: IncomingMessage, res: ServerResponse): Promise<void> {
+  async function handleUpstreamResponse(
+    req: IncomingMessage,
+    upstreamRes: IncomingMessage,
+    res: ServerResponse,
+    isRetry = false,
+  ): Promise<void> {
+    if (upstreamRes.statusCode === 401) {
+      const parsed = new URL(req.url ?? '/', 'http://proxy')
+      const isIndex = parsed.pathname === '/' || parsed.pathname === '/index.html'
+      const isGetOrHead = req.method === 'GET' || req.method === 'HEAD'
+      // If a stale dsh-auth cookie caused upstream index authorization to fail with 401,
+      // recover automatically by retrying with ?token= (stripping the stale cookie).
+      if (!isRetry && isIndex && isGetOrHead && options.getDshToken !== undefined) {
+        const token = await options.getDshToken()
+        if (token) {
+          upstreamRes.resume()
+          const headers: Record<string, string | string[] | undefined> = { ...req.headers }
+          loopbackAuthority(headers, upstream)
+          if (typeof headers.cookie === 'string') {
+            const stripped = stripDshAuthCookies(headers.cookie)
+            if (stripped) headers.cookie = stripped
+            else delete headers.cookie
+          }
+          const retryUrl = `/?token=${encodeURIComponent(token)}`
+          const retryReq = httpRequest(
+            { host: upstream.host, port: upstream.port, method: req.method, path: retryUrl, headers },
+            (retryRes) => { void handleUpstreamResponse(req, retryRes, res, true) },
+          )
+          retryReq.on('error', () => {
+            if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
+            res.end('remote-proxy: cannot reach dsh web — start dsh web first')
+          })
+          retryReq.end()
+          return
+        }
+      }
+
+      // If upstream still rejected with 401 (e.g. non-index, token unavailable, or retry failed),
+      // clear any stale dsh-auth-* cookies in the client browser.
+      const clearCookies = clearDshAuthCookies(typeof req.headers.cookie === 'string' ? req.headers.cookie : undefined)
+      if (clearCookies.length > 0) {
+        const existing = upstreamRes.headers['set-cookie']
+        const existingArray = Array.isArray(existing) ? existing : existing ? [existing] : []
+        upstreamRes.headers['set-cookie'] = [...existingArray, ...clearCookies]
+      }
+    }
     const isHtml = String(upstreamRes.headers['content-type'] ?? '').includes('text/html')
     // For HTML, inject even when upstream is already compressed (e.g. via cloudflared's br): buffer, decompress, inject, then re-send
     if (isHtml) {
@@ -681,6 +761,11 @@ async function compressIfEligible(
       const lines = [`HTTP/1.1 ${upstreamRes.statusCode} ${upstreamRes.statusMessage ?? ''}`]
       for (const [key, value] of Object.entries(upstreamRes.headers)) {
         if (value !== undefined) lines.push(`${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
+      }
+      if (upstreamRes.statusCode === 401) {
+        for (const clearCookie of clearDshAuthCookies(typeof req.headers.cookie === 'string' ? req.headers.cookie : undefined)) {
+          lines.push(`Set-Cookie: ${clearCookie}`)
+        }
       }
       socket.end(`${lines.join('\r\n')}\r\n\r\n`)
       upstreamRes.resume()
