@@ -8,6 +8,7 @@ import { readPin, readLanPin, rotatePin, rotateLanPin } from './pin-store.js'
 import { createRemoteProxy, isPublicHost, lanUrls, type RemoteProxyHandle } from './remote-proxy.js'
 import { resolveCloudflared } from './cloudflared-fetch.js'
 import { scheduleStartupNotification } from './startup-notify.js'
+import { createTunnelWatchdog } from './tunnel-watchdog.js'
 
 const QUICK_TUNNEL_URL_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i
 
@@ -257,6 +258,22 @@ export function apply(ctx: Context): void {
   /** Aborts an in-flight start; stop() uses this so a half-started tunnel dies. */
   let startAbort: AbortController | undefined
 
+  /**
+   * Self-healing: the boot-time restore runs once, but a child that dies
+   * afterwards — or a transient boot failure — must not leave the tunnel
+   * down until the next hand restart. Retries keep firing with backoff for
+   * as long as the persisted intent (`lastTunnelRunning`) is still set; an
+   * explicit stop clears that intent and cancels every pending retry.
+   */
+  const watchdog = createTunnelWatchdog({ onRetry: () => { void retryStart() } })
+
+  async function retryStart(): Promise<void> {
+    if (current !== undefined || starting !== undefined) return
+    const config = await loadUserConfig()
+    if (config.lastTunnelRunning !== true) return
+    await start()
+  }
+
   async function readDshToken(): Promise<string | undefined> {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
@@ -411,9 +428,11 @@ export function apply(ctx: Context): void {
     }
     if (config.tunnelId === undefined || config.tunnelCredentialsFile === undefined || config.tunnelHostname === undefined) {
       ctx.logger?.warn?.('maestro-tunnel: lastTunnelRunning is set but named config is incomplete — tunnel not restored')
+      watchdog.notifyDown()
       return
     }
     await start()
+    if (!status.running) watchdog.notifyDown()
   }
 
   /** Wire process-exit tracking for a freshly started tunnel handle. */
@@ -425,6 +444,7 @@ export function apply(ctx: Context): void {
       if (current === undefined) return
       current = undefined
       status = { running: false, phase: 'error', errorMessage: `cloudflared process exited (code=${code ?? 'signal'})` }
+      watchdog.notifyDown()
     })
   }
 
@@ -469,9 +489,11 @@ export function apply(ctx: Context): void {
           status = { running: true, mode: 'named', publicUrl: current.url, phase: 'ready' }
         }
         await saveUserConfig({ lastTunnelRunning: true })
+        watchdog.notifyUp()
       } catch (err) {
         if (!abort.signal.aborted) {
           status = { running: false, mode, phase: 'error', errorMessage: err instanceof Error ? err.message : String(err) }
+          watchdog.notifyDown()
         }
       } finally {
         // Only clear our own in-flight record: a stop-then-start sequence may
@@ -482,6 +504,11 @@ export function apply(ctx: Context): void {
       return status
     })()
     starting = attempt
+    void attempt.finally(() => {
+      // A settled attempt must not pin `starting`: retries and later manual
+      // starts need a fresh attempt instead of reusing the stale promise.
+      if (starting === attempt) starting = undefined
+    })
     return starting
   }
 
@@ -489,6 +516,7 @@ export function apply(ctx: Context): void {
     startAbort?.abort()
     startAbort = undefined
     starting = undefined
+    watchdog.cancel()
     if (current !== undefined) {
       current.disposeExit()
       current.handle.kill()
@@ -502,6 +530,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => async () => {
     startAbort?.abort()
     starting = undefined
+    watchdog.dispose()
     // Teardown stops the cloudflared child but deliberately keeps
     // lastTunnelRunning: the child dies with this process anyway, and the next
     // boot should restore what the user left running. Only an explicit user

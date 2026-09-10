@@ -12,7 +12,7 @@ afterEach(async () => { await rm(home, { recursive: true, force: true }) })
 describe('config-store v2 (lib-backed adapter)', () => {
   it('save writes into the shared namespaced store, not the package file', async () => {
     await saveUserConfig({ gitlabToken: 'tok', tunnelMode: 'named' }, home)
-    const raw = JSON.parse(await readFile(join(home, 'maestro', 'settings.json'), 'utf8'))
+    const raw = JSON.parse(await readFile(join(home, 'dsh-maestro-config', 'settings.json'), 'utf8'))
     expect(raw.domains.gitlab.token).toBe('tok')
     expect(raw.domains.tunnel.mode).toBe('named')
   })
@@ -33,7 +33,7 @@ describe('config-store v2 (lib-backed adapter)', () => {
     await saveUserConfig({ lastTunnelRunning: true, tunnelId: 'tid' }, home)
     const sidecar = JSON.parse(await readFile(join(home, 'dsh-maestro-remote', 'runtime.json'), 'utf8'))
     expect(sidecar.lastTunnelRunning).toBe(true)
-    const store = JSON.parse(await readFile(join(home, 'maestro', 'settings.json'), 'utf8'))
+    const store = JSON.parse(await readFile(join(home, 'dsh-maestro-config', 'settings.json'), 'utf8'))
     expect(JSON.stringify(store)).not.toContain('lastTunnelRunning')
     expect((await loadUserConfig(home)).lastTunnelRunning).toBe(true)
   })
