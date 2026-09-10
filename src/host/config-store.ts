@@ -56,14 +56,14 @@ function resolveDshHome(dshHome?: string): string {
 }
 
 /**
- * Settings live in the SHARED namespaced store (`~/.dsh/maestro/settings.json`,
+ * Settings live in the SHARED namespaced store (`~/.dsh/dsh-maestro-config/settings.json`,
  * owned by @ddtcorex/dsh-maestro-config-lib); this store is a thin adapter that
  * keeps the package's flat `MaestroUserConfig` API while delegating persistence.
  * Machine runtime state (RUNTIME_KEYS) never enters settings — it stays in this
  * package's own sidecar so a settings edit can never silently flip tunnel state.
  */
 export function configStorePath(dshHome?: string): string {
-  return join(resolveDshHome(dshHome), 'maestro', 'settings.json')
+  return join(resolveDshHome(dshHome), 'dsh-maestro-config', 'settings.json')
 }
 
 function runtimeStatePath(dshHome?: string): string {
