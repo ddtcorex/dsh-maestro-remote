@@ -7,5 +7,10 @@
     - id: dsh-maestro-remote-rpc
       name: '@ddtcorex/dsh-maestro-remote/lib/index.js'
       channel: /dsh-maestro-remote
+      # Row-level inject: rpc.handle registers a webServer route inside an
+      # effect fiber, which carries only the row's inject (not the module's).
+      # Without webServer here the row fails on harnesses that provide
+      # webServer after rows apply (DSH 0.1.5-rc.1+).
+      inject: ['webServer', 'connection']
     - id: dsh-maestro-tunnel
       name: '@ddtcorex/dsh-maestro-remote/lib/tunnel.js'
