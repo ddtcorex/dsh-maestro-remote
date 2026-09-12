@@ -172,6 +172,13 @@ export interface RemoteProxyAuth {
   getPin: () => Promise<string>
   /** When present, non-public hosts are gated behind this second PIN. */
   getLanPin?: () => Promise<string>
+  /**
+   * Login-cookie lifetime in hours, read per login so a settings change needs
+   * no restart. Absent = DEFAULT_PIN_SESSION_TTL_HOURS (a persistent cookie);
+   * `0` = session cookie. The returned value is passed through
+   * `resolvePinSessionTtlHours`, so a raw config value is safe to return.
+   */
+  getPinSessionTtlHours?: () => Promise<number | undefined>
 }
 
 export interface RemoteProxyOptions {
@@ -423,7 +430,10 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
     const pin = await auth.getPin()
     if (secretsMatch(submitted, pin)) {
       clearLoginFailures(remoteAddress)
-      res.writeHead(302, { location: '/', 'set-cookie': `maestro_pin=${pin}; HttpOnly; SameSite=Lax; Path=/`, 'cache-control': 'no-store' })
+      const ttlHours = auth.getPinSessionTtlHours === undefined
+        ? DEFAULT_PIN_SESSION_TTL_HOURS
+        : resolvePinSessionTtlHours(await auth.getPinSessionTtlHours())
+      res.writeHead(302, { location: '/', 'set-cookie': pinSessionCookie(pin, ttlHours), 'cache-control': 'no-store' })
       res.end()
       return
     }
