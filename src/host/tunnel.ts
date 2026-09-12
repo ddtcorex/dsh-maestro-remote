@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { loadUserConfig, saveUserConfig } from './config-store.js'
 import { readPin, readLanPin, rotatePin, rotateLanPin } from './pin-store.js'
-import { createRemoteProxy, isPublicHost, lanUrls, type RemoteProxyHandle } from './remote-proxy.js'
+import { createRemoteProxy, isPublicHost, lanUrls, resolvePinSessionTtlHours, type RemoteProxyHandle } from './remote-proxy.js'
 import { resolveCloudflared } from './cloudflared-fetch.js'
 import { scheduleStartupNotification } from './startup-notify.js'
 import { createTunnelWatchdog } from './tunnel-watchdog.js'
@@ -240,6 +240,16 @@ export function setResolverInternalsForTests(internals: typeof testResolverInter
   testResolverInternals = internals
 }
 
+/**
+ * Login-cookie lifetime for the next login, read from the shared settings store
+ * on every call (the lib caches by mtime, so this is one `stat`). Reading per
+ * login — like `getPin` — is what makes a Settings edit take effect without
+ * restarting `dsh web`.
+ */
+export async function configuredPinSessionTtlHours(): Promise<number> {
+  return resolvePinSessionTtlHours((await loadUserConfig()).pinSessionTtlHours)
+}
+
 export function apply(ctx: Context): void {
   let current: { handle: QuickTunnelHandle | NamedTunnelHandle; mode: 'quick' | 'named'; url?: string; disposeExit: () => void } | undefined
   let status: TunnelStatus = { running: false, phase: 'idle' }
@@ -328,6 +338,7 @@ export function apply(ctx: Context): void {
           auth: {
             isPublic: (host) => isPublicHost(host, configuredHostname),
             getPin: () => readPin(),
+            getPinSessionTtlHours: configuredPinSessionTtlHours,
             // Opt-in: an untouched config keeps LAN access open. The login
             // page and cookie flow are shared with the public PIN gate.
             ...(bootConfig.lanPinEnabled === true ? { getLanPin: () => readLanPin() } : {}),
@@ -390,6 +401,7 @@ export function apply(ctx: Context): void {
           auth: {
             isPublic: () => false,
             getPin: () => readPin(),
+            getPinSessionTtlHours: configuredPinSessionTtlHours,
             // Single-PIN model: the local listener reuses the public PIN, so
             // the shared login page and cookie flow work unchanged.
             ...(bootConfig.lanPinEnabled === true ? { getLanPin: () => readPin() } : {}),

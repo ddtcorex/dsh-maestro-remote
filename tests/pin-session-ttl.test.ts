@@ -151,3 +151,30 @@ describe('login cookie lifetime', () => {
     })
   })
 })
+
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { saveUserConfig } from '../src/host/config-store.ts'
+import { configuredPinSessionTtlHours } from '../src/host/tunnel.ts'
+
+describe('configuredPinSessionTtlHours', () => {
+  it('reads settings on every call, so a Settings edit needs no restart', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'pin-ttl-'))
+    const previous = process.env.DSH_HOME
+    process.env.DSH_HOME = home
+    try {
+      expect(await configuredPinSessionTtlHours()).toBe(24) // unset -> default
+      await saveUserConfig({ pinSessionTtlHours: 8 })
+      expect(await configuredPinSessionTtlHours()).toBe(8)
+      await saveUserConfig({ pinSessionTtlHours: 0 })
+      expect(await configuredPinSessionTtlHours()).toBe(0)
+      await saveUserConfig({ pinSessionTtlHours: 99999 })
+      expect(await configuredPinSessionTtlHours()).toBe(8760) // clamped
+    } finally {
+      if (previous === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = previous
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+})
