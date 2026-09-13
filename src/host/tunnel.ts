@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { loadUserConfig, saveUserConfig } from './config-store.js'
 import { readPin, readLanPin, rotatePin, rotateLanPin } from './pin-store.js'
-import { createRemoteProxy, isPublicHost, lanUrls, resolvePinSessionTtlHours, type RemoteProxyHandle } from './remote-proxy.js'
+import { createRemoteProxy, lanUrls, policyHost, resolvePinSessionTtlHours, type RemoteProxyHandle } from './remote-proxy.js'
 import { resolveCloudflared } from './cloudflared-fetch.js'
 import { scheduleStartupNotification } from './startup-notify.js'
 import { createTunnelWatchdog } from './tunnel-watchdog.js'
@@ -262,7 +262,6 @@ export function apply(ctx: Context): void {
   let proxyState: ProxyStatus = { running: false, lanUrls: [] }
   // Refreshed whenever config is loaded so the PIN gate classifies hosts by
   // the hostname the tunnel actually uses.
-  let configuredHostname: string | undefined
   let proxyPort = 3081
   /** Local/LAN proxy listener (spec: local-pin-gate); undefined when `lanPort` is unset. */
   let lanProxy: RemoteProxyHandle | undefined
@@ -329,7 +328,6 @@ export function apply(ctx: Context): void {
     lanProxy = undefined
     lanPort = undefined
     const bootConfig = await loadUserConfig()
-    configuredHostname = bootConfig.tunnelHostname
     const requestedPort = bootConfig.proxyPort ?? 3081
     // Try the configured port first, then walk up a few ports when it is
     // busy (EADDRINUSE) — a stale process on 3081 must not kill remote access.
@@ -341,7 +339,9 @@ export function apply(ctx: Context): void {
           host: bootConfig.proxyHost ?? '0.0.0.0',
           upstream: { host: '127.0.0.1', port: (ctx as any).webServer.port },
           auth: {
-            isPublic: (host) => isPublicHost(host, configuredHostname),
+            // Public for every request on this listener: the class must not be
+            // downgradable by a client-supplied Host header (see policyHost).
+            isPublic: () => policyHost(false, 'public'),
             getPin: () => readPin(),
             getPinSessionTtlHours: configuredPinSessionTtlHours,
             // Opt-in: an untouched config keeps LAN access open. LAN-class hosts
@@ -414,7 +414,7 @@ export function apply(ctx: Context): void {
           host: bootConfig.lanHost ?? '0.0.0.0',
           upstream: { host: '127.0.0.1', port: (ctx as any).webServer.port },
           auth: {
-            isPublic: () => false,
+            isPublic: () => policyHost(false, 'lan'),
             getPin: () => readPin(),
             getPinSessionTtlHours: configuredPinSessionTtlHours,
             // Every host on this listener is LAN-class, so the LAN PIN governs
@@ -482,7 +482,6 @@ export function apply(ctx: Context): void {
     startAbort = abort
     const attempt: Promise<TunnelStatus> = (async () => {
       const userConfig = await loadUserConfig()
-      configuredHostname = userConfig.tunnelHostname
       const mode = userConfig.tunnelMode ?? 'quick'
       status = { running: false, mode, phase: 'starting' }
       try {

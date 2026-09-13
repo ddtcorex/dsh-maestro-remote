@@ -232,6 +232,58 @@ const DEFAULT_LOGIN_RATE_LIMIT: LoginRateLimit = { maxFailures: 5, windowMs: 10 
 /** Cap on tracked source addresses so the failure map cannot grow unbounded. */
 const MAX_TRACKED_ADDRESSES = 1000
 
+/** Forwarded-address headers, as they arrive on the Node request. */
+export interface ForwardedAddressHeaders {
+  'cf-connecting-ip'?: string | string[]
+  'x-forwarded-for'?: string | string[]
+}
+
+/** The loopback spellings a Node socket address can take. */
+export function isLoopbackAddress(ip: string | undefined): boolean {
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
+}
+
+function firstHeaderValue(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value
+  if (raw === undefined) return undefined
+  const first = raw.split(',')[0]?.trim()
+  return first === undefined || first === '' ? undefined : first
+}
+
+/**
+ * Identity a login attempt is throttled under.
+ *
+ * Behind cloudflared every public request arrives from `127.0.0.1`, so keying on
+ * the socket address puts the whole internet and the owner in one bucket: the
+ * limiter stops protecting anything and one attacker can lock the owner out.
+ * Forwarded headers are therefore trusted **only** when the TCP peer is
+ * loopback — that is our own tunnel process — because a direct client could
+ * otherwise choose someone else's bucket (or dodge its own).
+ */
+export function clientIdentity(
+  peer: string | undefined,
+  headers: ForwardedAddressHeaders,
+  isLoopback: (ip: string | undefined) => boolean = isLoopbackAddress,
+): string {
+  if (!isLoopback(peer)) return peer ?? 'unknown'
+  return firstHeaderValue(headers['cf-connecting-ip'])
+    ?? firstHeaderValue(headers['x-forwarded-for'])
+    ?? peer
+    ?? 'unknown'
+}
+
+/**
+ * Whether a request belongs to the public host class.
+ *
+ * The listener's own class is authoritative and a client-supplied `Host` header
+ * can only ever *tighten* it: forging `Host: 127.0.0.1` on the public ingress
+ * used to move the request into the LAN class, which is unauthenticated when no
+ * LAN PIN is configured — a one-header bypass of the public PIN.
+ */
+export function policyHost(claimedPublic: boolean, listenerClass: 'public' | 'lan'): boolean {
+  return listenerClass === 'public' || claimedPublic
+}
+
 /** Lifetime of the `maestro_pin` login cookie in hours when the setting is absent. */
 export const DEFAULT_PIN_SESSION_TTL_HOURS = 24
 /** Upper bound (365 days); a larger setting is clamped, never trusted. */
@@ -433,7 +485,9 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
   }
 
   async function handleLogin(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const remoteAddress = req.socket.remoteAddress ?? 'unknown'
+    // Throttle the real client, not our tunnel process: after cloudflared every
+    // public request shares the loopback peer address.
+    const remoteAddress = clientIdentity(req.socket.remoteAddress, req.headers as ForwardedAddressHeaders)
     const retryAfterSeconds = loginThrottled(remoteAddress)
     if (retryAfterSeconds > 0) {
       res.writeHead(429, { 'retry-after': String(retryAfterSeconds), 'content-type': 'text/plain; charset=utf-8' })

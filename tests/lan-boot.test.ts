@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { request as httpRequest } from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -42,6 +43,22 @@ function makeCtx(webPort = 1, webStartupPort?: number): { ctx: any; teardown: ()
   return { ctx, teardown: () => { for (const d of disposers) d() } }
 }
 
+/** fetch() cannot send a Host header (forbidden name) — this test needs a real one. */
+function getWithHost(port: number, host: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      { host: '127.0.0.1', port, method: 'GET', path: '/', headers: { host, accept: 'text/html' } },
+      (res) => {
+        let body = ''
+        res.on('data', (chunk) => { body += chunk })
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+      },
+    )
+    req.on('error', reject)
+    req.end()
+  })
+}
+
 async function boot(settings: Record<string, unknown>, webPort = 1, webStartupPort?: number): Promise<{ ctx: any; tunnel: Controller; teardown: () => void }> {
   await writeLegacyPatch(settings, { dshHome: home })
   const { ctx, teardown } = makeCtx(webPort, webStartupPort)
@@ -50,6 +67,22 @@ async function boot(settings: Record<string, unknown>, webPort = 1, webStartupPo
   await tunnel.initialReady()
   return { ctx, tunnel, teardown }
 }
+
+describe('maestroTunnel public listener classification', () => {
+  it('stays public even when the client forges a private Host header', async () => {
+    const { tunnel, teardown } = await boot({ proxyPort: 0, tunnelHostname: 'dsh.example.com' })
+    try {
+      const port = tunnel.proxyStatus().port as number
+      // Before the fix this fell into the LAN class, which is unauthenticated
+      // when no LAN PIN is configured — one header bypassed the public PIN.
+      const res = await getWithHost(port, '127.0.0.1')
+      expect(res.status).toBe(200)
+      expect(res.body).toContain('maestro-login-card')
+    } finally {
+      teardown()
+    }
+  })
+})
 
 describe('maestroTunnel LAN proxy listener', () => {
   it('advertises the LAN listener URL and the fact that a PIN is required', async () => {
