@@ -84,7 +84,7 @@ describe('PIN-only: DSH token auto-mint', () => {
     }
   })
 
-  it('re-injects ?token= and recovers when upstream rejects stale dsh-auth cookie with 401 on GET /', async () => {
+  it('re-injects ?token= and answers the upstream 3xx with a 200 cookie page when a stale dsh-auth cookie is rejected', async () => {
     const requests: { url: string; cookie?: string }[] = []
     const upstream = await new Promise<{ server: Server; port: number }>((resolve) => {
       const server = createServer((req, res) => {
@@ -126,10 +126,15 @@ describe('PIN-only: DSH token auto-mint', () => {
         headers: { host: 'public.example.com', cookie: 'maestro_pin=12345678; dsh-auth-old=stale-secret' },
         redirect: 'manual',
       })
-      // Proxy should have caught 401, retried with ?token=tok-recovered, and relayed 303 + fresh Set-Cookie
-      expect(res.status).toBe(303)
-      expect(res.headers.get('location')).toBe('/')
+      // The proxy caught the 401, retried with ?token=tok-recovered, and turns
+      // the upstream 3xx into a 200 page: the fresh cookie must ride a 200,
+      // because Safari drops a Set-Cookie sent on a redirect from a bare http origin.
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toContain('text/html')
       expect(res.headers.get('set-cookie')).toContain('dsh-auth-fresh=token-minted')
+      const body = await res.text()
+      expect(body).toContain('http-equiv="refresh"')
+      expect(body).toContain('url=/')
       expect(requests).toHaveLength(2)
       expect(requests[0]?.url).toBe('/')
       expect(requests[0]?.cookie).toContain('dsh-auth-old=stale-secret')

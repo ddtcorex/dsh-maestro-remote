@@ -224,6 +224,14 @@ export interface RemoteProxyOptions {
    * never on the public listener, which must stay fully PIN-gated.
    */
   gateExemptPathPrefixes?: string[]
+  /**
+   * Token-handshake guard (spec D7): Safari drops a `Set-Cookie` carried by a
+   * 3xx from a bare http origin, which turns the launch-token exchange into an
+   * endless loop. After this many handshakes from one client identity inside the
+   * window the proxy serves guidance instead of re-injecting the token;
+   * `?retry` resets the counter. Defaults: 3 per 60s.
+   */
+  handshake?: { maxHandshakes?: number; windowMs?: number }
 }
 
 export interface LoginRateLimit { maxFailures: number; windowMs: number }
@@ -323,6 +331,112 @@ export interface RemoteProxyHandle {
   close: () => Promise<void>
 }
 
+export interface HandshakeGuardOptions {
+  /** Handshakes allowed per identity inside the window. Default 3. */
+  maxHandshakes?: number
+  /** Sliding window length. Default 60_000. */
+  windowMs?: number
+}
+
+export interface HandshakeGuard {
+  /** Record one handshake for `key`; false once the window is already full. */
+  check: (key: string) => boolean
+  /** Forget `key`'s history (`?retry`). */
+  reset: (key: string) => void
+}
+
+const DEFAULT_HANDSHAKE_LIMIT = 3
+const DEFAULT_HANDSHAKE_WINDOW_MS = 60_000
+/** Cap on tracked identities so the guard map cannot grow unbounded. */
+const MAX_TRACKED_HANDSHAKE_KEYS = 1000
+
+/**
+ * Per-identity handshake counter. The window slides, so a browser that keeps
+ * dropping the cookie stops after the cap and then recovers by itself once the
+ * window passes — an endless redirect loop never happens.
+ */
+export function createHandshakeGuard(options: HandshakeGuardOptions = {}, deps: { now?: () => number } = {}): HandshakeGuard {
+  const maxHandshakes = options.maxHandshakes ?? DEFAULT_HANDSHAKE_LIMIT
+  const windowMs = options.windowMs ?? DEFAULT_HANDSHAKE_WINDOW_MS
+  const now = deps.now ?? ((): number => Date.now())
+  const history = new Map<string, number[]>()
+  return {
+    check(key: string): boolean {
+      const at = now()
+      const recent = (history.get(key) ?? []).filter((stamp) => at - stamp < windowMs)
+      if (recent.length >= maxHandshakes) {
+        history.set(key, recent)
+        return false
+      }
+      if (!history.has(key) && history.size >= MAX_TRACKED_HANDSHAKE_KEYS) {
+        const oldest = history.keys().next().value
+        if (oldest !== undefined) history.delete(oldest)
+      }
+      recent.push(at)
+      history.set(key, recent)
+      return true
+    },
+    reset(key: string): void {
+      history.delete(key)
+    },
+  }
+}
+
+/** Whether an upstream response is the token exchange's cookie-carrying redirect. */
+export function isTokenHandshakeRedirect(statusCode: number | undefined, setCookie: string | string[] | undefined): boolean {
+  if (statusCode !== 301 && statusCode !== 302 && statusCode !== 303 && statusCode !== 307 && statusCode !== 308) return false
+  if (setCookie === undefined) return false
+  const cookies = Array.isArray(setCookie) ? setCookie : [setCookie]
+  return cookies.some((cookie) => cookie.trim() !== '')
+}
+
+/** Minimal HTML escape for a value placed in an attribute or a text node. */
+function escapeHtml(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
+}
+
+/**
+ * The 200 page that replaces the handshake's 3xx: the cookie already rode the
+ * response headers, and this meta refresh performs the navigation the redirect
+ * would have done.
+ */
+export function tokenHandshakePage(location: string): string {
+  const target = escapeHtml(location === '' ? '/' : location)
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="0; url=${target}"><title>Maestro</title></head><body><p>Signing you in</p><p><a href="${target}">Continue to Maestro</a></p></body></html>`
+}
+
+/**
+ * Served instead of a fourth handshake for the same identity: the browser is
+ * discarding the sign-in cookie, so looping again cannot help. `?retry` clears
+ * the counter once the visitor has changed whatever blocked it.
+ */
+export function handshakeGuidancePage(): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Maestro</title></head><body><h1>Maestro</h1><p>This browser is not keeping the sign-in cookie, so the page keeps returning to the first step.</p><ul><li>Allow cookies for this address — private browsing discards them.</li><li>Open the address directly in the browser instead of an in-app viewer.</li></ul><p><a href="/?retry=1">Try again</a></p></body></html>`
+}
+
+/** Answer a token-handshake 3xx with a 200 + the upstream cookie + meta refresh. */
+function serveTokenHandshake(upstreamRes: IncomingMessage, res: ServerResponse): void {
+  const rawCookies = upstreamRes.headers['set-cookie']
+  const cookies = rawCookies === undefined ? [] : Array.isArray(rawCookies) ? rawCookies : [rawCookies]
+  upstreamRes.resume()
+  const location = typeof upstreamRes.headers.location === 'string' ? upstreamRes.headers.location : '/'
+  const body = tokenHandshakePage(location)
+  const headers: Record<string, string | string[]> = {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-length': String(Buffer.byteLength(body)),
+  }
+  if (cookies.length > 0) headers['set-cookie'] = cookies
+  res.writeHead(200, headers)
+  res.end(body)
+}
+
+/** Answer the handshake cap with guidance instead of another token round trip. */
+function serveHandshakeGuidance(res: ServerResponse): void {
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+  res.end(handshakeGuidancePage())
+}
+
 /** Nearest ancestor directory containing a package.json — the plugin package root from src/ (vitest) or lib/ (built). */
 function packageRootDir(startFile: string): string {
   let dir = dirname(startFile)
@@ -412,6 +526,8 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
   })
 
   const loginFailures = new Map<string, number[]>()
+
+  const handshakeGuard = createHandshakeGuard(options.handshake ?? {})
 
   /** Retry-after seconds while the source address is throttled, or 0 when free to try. */
   function loginThrottled(key: string): number {
@@ -643,13 +759,22 @@ async function compressIfEligible(
   return { compressed: true, buffered: [] }
 }
 
-  /** Route one upstream response: HTML polyfill injection, compression, or raw pass-through. */
+  /** Route one upstream response: token handshake, HTML injection, compression, or pass-through. */
   async function handleUpstreamResponse(
     req: IncomingMessage,
     upstreamRes: IncomingMessage,
     res: ServerResponse,
     isRetry = false,
+    tokenHandshake = false,
   ): Promise<void> {
+    // A 3xx carrying the minted cookie is the handshake's own redirect. Relaying
+    // it lets Safari (which drops Set-Cookie on a 3xx from a bare http origin)
+    // loop forever, so answer with a 200 that carries the cookie and performs
+    // the same navigation via meta refresh (spec D7).
+    if (tokenHandshake && isTokenHandshakeRedirect(upstreamRes.statusCode, upstreamRes.headers['set-cookie'])) {
+      serveTokenHandshake(upstreamRes, res)
+      return
+    }
     if (upstreamRes.statusCode === 401) {
       const parsed = new URL(req.url ?? '/', 'http://proxy')
       const isIndex = parsed.pathname === '/' || parsed.pathname === '/index.html'
@@ -670,7 +795,7 @@ async function compressIfEligible(
           const retryUrl = `/?token=${encodeURIComponent(token)}`
           const retryReq = httpRequest(
             { host: upstream.host, port: upstream.port, method: req.method, path: retryUrl, headers },
-            (retryRes) => { void handleUpstreamResponse(req, retryRes, res, true) },
+            (retryRes) => { void handleUpstreamResponse(req, retryRes, res, true, true) },
           )
           retryReq.on('error', () => {
             if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
@@ -745,27 +870,47 @@ async function compressIfEligible(
     return cookie.includes('dsh-auth-')
   }
 
-  async function maybeInjectDshToken(req: IncomingMessage): Promise<string> {
+  interface TokenInjection { url: string; injected: boolean; guidance: boolean }
+
+  /**
+   * Decide whether this request needs the launch-token exchange. `injected`
+   * marks a token handshake (its upstream 3xx becomes a 200 page, spec D7);
+   * `guidance` means the identity already used up its handshakes.
+   */
+  async function maybeInjectDshToken(req: IncomingMessage): Promise<TokenInjection> {
     const rawUrl = req.url ?? '/'
-    if (options.getDshToken === undefined) return rawUrl
-    if (hasDshAuthCookie(req)) return rawUrl
+    if (options.getDshToken === undefined) return { url: rawUrl, injected: false, guidance: false }
+    if (hasDshAuthCookie(req)) return { url: rawUrl, injected: false, guidance: false }
     // Only for index HTML where BrowserAuth expects ?token= — API already
     // gated by cookie; other assets are public.
     const parsed = new URL(rawUrl, 'http://proxy')
-    if (parsed.pathname !== '/' && parsed.pathname !== '/index.html') return rawUrl
-    if (parsed.searchParams.has('token')) return rawUrl
+    if (parsed.pathname !== '/' && parsed.pathname !== '/index.html') return { url: rawUrl, injected: false, guidance: false }
+    const identity = clientIdentity(req.socket.remoteAddress, req.headers as ForwardedAddressHeaders)
+    if (parsed.searchParams.has('retry')) {
+      handshakeGuard.reset(identity)
+      parsed.searchParams.delete('retry')
+    }
+    const cleanUrl = parsed.pathname + parsed.search + parsed.hash
+    // A token the client brought itself is still a handshake: its 3xx has the
+    // same Safari problem.
+    if (parsed.searchParams.has('token')) return { url: cleanUrl, injected: true, guidance: false }
+    if (!handshakeGuard.check(identity)) return { url: cleanUrl, injected: false, guidance: true }
     const token = await options.getDshToken()
-    if (!token) return rawUrl
+    if (!token) return { url: cleanUrl, injected: false, guidance: false }
     parsed.searchParams.set('token', token)
-    return parsed.pathname + parsed.search + parsed.hash
+    return { url: parsed.pathname + parsed.search + parsed.hash, injected: true, guidance: false }
   }
 
   function proxyRequest(req: IncomingMessage, res: ServerResponse): void {
     void (async () => {
       const headers: Record<string, string | string[] | undefined> = { ...req.headers }
       loopbackAuthority(headers, upstream)
-      const url = await maybeInjectDshToken(req)
-      const upstreamReq = httpRequest({ host: upstream.host, port: upstream.port, method: req.method, path: url, headers }, (upstreamRes) => { void handleUpstreamResponse(req, upstreamRes, res) })
+      const injection = await maybeInjectDshToken(req)
+      if (injection.guidance) {
+        serveHandshakeGuidance(res)
+        return
+      }
+      const upstreamReq = httpRequest({ host: upstream.host, port: upstream.port, method: req.method, path: injection.url, headers }, (upstreamRes) => { void handleUpstreamResponse(req, upstreamRes, res, false, injection.injected) })
       upstreamReq.on('error', () => {
         if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
         res.end('remote-proxy: cannot reach dsh web — start dsh web first')
