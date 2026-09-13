@@ -366,6 +366,11 @@ export interface RemoteProxyOptions {
    */
   handshake?: { maxHandshakes?: number; windowMs?: number }
   /**
+   * Test seam for the peer classification the handshake guard uses; production
+   * defaults to `isLoopbackAddress`. Never used to decide the PIN gate.
+   */
+  peerIsLoopback?: (ip: string | undefined) => boolean
+  /**
    * WebSocket liveness (spec D8). Defaults: one silent-interval check every 30s
    * and two of them before the socket is destroyed. Tests shorten it.
    */
@@ -679,6 +684,7 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
   const loginFailures = new Map<string, number[]>()
 
   const handshakeGuard = createHandshakeGuard(options.handshake ?? {})
+  const peerIsLoopback = options.peerIsLoopback ?? isLoopbackAddress
   const wsHeartbeatOptions = options.wsHeartbeat ?? {}
 
   /** Retry-after seconds while the source address is throttled, or 0 when free to try. */
@@ -1054,7 +1060,15 @@ async function compressIfEligible(
     // A token the client brought itself is still a handshake: its 3xx has the
     // same Safari problem.
     if (parsed.searchParams.has('token')) return { url: cleanUrl, injected: true, guidance: false }
-    if (!handshakeGuard.check(identity)) return { url: cleanUrl, injected: false, guidance: true }
+    // Count a handshake only for a remote client that is not already holding a
+    // session. Counting our own traffic starves real browsers: the supervisor's
+    // health probe is cookie-less, runs every 3s and shares the loopback
+    // identity, so it alone spends a 3-per-minute budget in nine seconds and the
+    // browser then gets the guidance page instead of the app. The Safari loop
+    // this guard defends against only ever hits a *remote* client whose 3xx
+    // cookie was dropped.
+    const countsAsHandshake = !peerIsLoopback(req.socket.remoteAddress) && !hasDshAuthCookie(req)
+    if (countsAsHandshake && !handshakeGuard.check(identity)) return { url: cleanUrl, injected: false, guidance: true }
     const token = await options.getDshToken()
     if (!token) return { url: cleanUrl, injected: false, guidance: false }
     parsed.searchParams.set('token', token)

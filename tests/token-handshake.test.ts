@@ -111,6 +111,34 @@ describe('token handshake without a redirect loop', () => {
     }
   })
 
+  it('never spends the budget on traffic from this machine', async () => {
+    // 2026-09-13: the supervisor's health probe is cookie-less and runs every
+    // 3s, so counting it against the loopback identity exhausted a 3-per-minute
+    // budget in nine seconds and the real browser-which shares that identity-
+    // was served the guidance page instead of the app.
+    const upstream = await handshakeUpstream()
+    const proxy = await createRemoteProxy({
+      port: 0,
+      host: '127.0.0.1',
+      upstream: { host: '127.0.0.1', port: upstream.port },
+      // Open LAN class with no PIN: this is the cookie-less health probe's shape.
+      auth: { isPublic: () => false, getPin: async () => '11112222' },
+      getDshToken: async () => 'tok-xyz',
+      handshake: { maxHandshakes: 1, windowMs: 60_000 },
+    })
+    try {
+      for (let i = 0; i < 5; i++) {
+        const body = await (await fetch(`http://127.0.0.1:${proxy.port}/`)).text()
+        expect(body).toContain('http-equiv="refresh"')
+        expect(body).not.toContain('/?retry=1')
+      }
+      expect(upstream.seen).toHaveLength(5)
+    } finally {
+      await proxy.close()
+      upstream.server.close()
+    }
+  })
+
   it('caps the handshake counter and serves guidance until ?retry resets it', async () => {
     const upstream = await handshakeUpstream()
     const proxy = await createRemoteProxy({
@@ -120,6 +148,9 @@ describe('token handshake without a redirect loop', () => {
       auth: { isPublic: () => true, getPin: async () => '11112222' },
       getDshToken: async () => 'tok-xyz',
       handshake: { maxHandshakes: 3, windowMs: 60_000 },
+      // The guard exists for a *remote* client whose 3xx cookie a browser
+      // dropped; this test client is loopback, which is exempt by design.
+      peerIsLoopback: () => false,
     })
     try {
       const headers = { cookie: 'maestro_pin=11112222' }
