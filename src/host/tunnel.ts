@@ -358,7 +358,10 @@ export function apply(ctx: Context): void {
         proxyState = {
           running: true,
           port: handle.port,
-          lanUrls: lanUrls(handle.port),
+          // No LAN URLs until the LAN listener exists: the public listener is
+          // public for every request (policyHost), so advertising its port as a
+          // "LAN" address would pair a URL with a PIN this card never shows.
+          lanUrls: [],
           lanPinRequired: bootConfig.lanPinEnabled === true,
         }
         proxyState.lanPort = lanPort
@@ -384,8 +387,9 @@ export function apply(ctx: Context): void {
         await bootLanProxy(bootConfig)
         // The LAN listener is the entry a device on the network should use, so
         // advertise ITS port — pairing the public listener's port with the LAN
-        // PIN produced a URL+PIN combination that could not log in.
-        proxyState.lanUrls = lanUrls(lanPort ?? handle.port)
+        // PIN produced a URL+PIN combination that could not log in. With no LAN
+        // listener there is no LAN URL at all.
+        proxyState.lanUrls = lanPort === undefined ? [] : lanUrls(lanPort)
         return
       } catch (err) {
         lastError = err

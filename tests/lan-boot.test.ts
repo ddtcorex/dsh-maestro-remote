@@ -167,6 +167,20 @@ describe('maestroTunnel LAN proxy listener', () => {
     }
   })
 
+  it('advertises no LAN URL when no LAN listener is configured', async () => {
+    const { ctx, tunnel, teardown } = await boot({ proxyPort: 0 })
+    try {
+      const status = tunnel.proxyStatus()
+      expect(status.lanPort).toBeUndefined()
+      // The public listener needs the public PIN, so a "LAN" URL without a LAN
+      // listener would promise access this card cannot deliver.
+      expect(status.lanUrls).toEqual([])
+    } finally {
+      await ctx.maestroTunnel?.stop()
+      teardown()
+    }
+  })
+
   it('fail-closes the half-deploy: webserver off :3080 with no lanPort surfaces a deployment error', async () => {
     // makeCtx webPort defaults to 1 (never the canonical 3080): the exact
     // 2026-09-02 shape where the profile moved the webserver away but the
