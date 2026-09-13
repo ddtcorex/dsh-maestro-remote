@@ -63,6 +63,95 @@ export function isPinAuthorized(req: PinRequestFacts, pin: string, cookieName: s
   return secretsMatch(cookiePin, pin)
 }
 
+/** Production liveness interval (spec D8): one silent-interval check every 30s. */
+export const WS_HEARTBEAT_INTERVAL_MS = 30_000
+/** Silent intervals tolerated before the socket is destroyed (spec D8). */
+export const WS_HEARTBEAT_MISSED_LIMIT = 2
+
+export interface WsHeartbeatOptions {
+  /** Called once when the peer stayed silent for `missedLimit` intervals. */
+  onDead: () => void
+  /** Probe interval; 30s in production. */
+  intervalMs?: number
+  /** Consecutive silent intervals before `onDead`; 2 in production. */
+  missedLimit?: number
+}
+
+export interface WsHeartbeatDeps {
+  setInterval?: (handler: () => void, ms: number) => ReturnType<typeof setInterval>
+  clearInterval?: (handle: ReturnType<typeof setInterval>) => void
+}
+
+export interface WsHeartbeat {
+  /** Data arrived from the peer: clear the silent-interval count. */
+  noteActivity: () => void
+  /** Stop watching. Idempotent. */
+  dispose: () => void
+  readonly missed: number
+  readonly disposed: boolean
+}
+
+/**
+ * Liveness for a proxied WebSocket.
+ *
+ * Node's upgrade sockets expose no ping/pong API at this layer (the socket is
+ * the raw net.Socket handed to the `upgrade` event, not a WebSocket object), so
+ * this counts inbound DATA activity instead of protocol pings: every chunk the
+ * client sends proves the path is still open, and `missedLimit` consecutive
+ * intervals with nothing inbound means the peer is gone. A phone that sleeps or
+ * moves behind NAT loses the downlink without a FIN, so neither side notices
+ * until the connection is destroyed and the browser reconnects.
+ */
+export function createWsHeartbeat(options: WsHeartbeatOptions, deps: WsHeartbeatDeps = {}): WsHeartbeat {
+  const intervalMs = options.intervalMs ?? WS_HEARTBEAT_INTERVAL_MS
+  const missedLimit = options.missedLimit ?? WS_HEARTBEAT_MISSED_LIMIT
+  const startTimer = deps.setInterval ?? setInterval
+  const stopTimer = deps.clearInterval ?? clearInterval
+  let missed = 0
+  let disposed = false
+  let timer: ReturnType<typeof setInterval> | undefined
+  const tick = (): void => {
+    if (disposed) return
+    missed += 1
+    if (missed >= missedLimit) {
+      disposed = true
+      if (timer !== undefined) stopTimer(timer)
+      timer = undefined
+      options.onDead()
+    }
+  }
+  timer = startTimer(tick, intervalMs)
+  // Never let liveness alone keep the host process alive.
+  ;(timer as { unref?: () => void } | undefined)?.unref?.()
+  return {
+    noteActivity(): void {
+      if (!disposed) missed = 0
+    },
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      if (timer !== undefined) stopTimer(timer)
+      timer = undefined
+    },
+    get missed(): number { return missed },
+    get disposed(): boolean { return disposed },
+  }
+}
+
+/**
+ * Tear down an upstream socket by resetting it, so the upstream sees an RST
+ * instead of a clean FIN: dsh web accepts half-open connections
+ * (`allowHalfOpen`), so a FIN can leave a zombie holding a session slot. Falls
+ * back to `destroy()` on runtimes without `resetAndDestroy`.
+ */
+export function resetAndDestroyUpstream(socket: { resetAndDestroy?: () => void; destroy: () => void }): void {
+  if (typeof socket.resetAndDestroy === 'function') {
+    socket.resetAndDestroy()
+    return
+  }
+  socket.destroy()
+}
+
 /** Rewrite browser-visible authorities to the loopback upstream so DSH's /api fence sees loopback. */
 export function loopbackAuthority(headers: Record<string, string | string[] | undefined>, upstream: ProxyUpstream): void {
   const authority = `${upstream.host}:${upstream.port}`
@@ -232,6 +321,11 @@ export interface RemoteProxyOptions {
    * `?retry` resets the counter. Defaults: 3 per 60s.
    */
   handshake?: { maxHandshakes?: number; windowMs?: number }
+  /**
+   * WebSocket liveness (spec D8). Defaults: one silent-interval check every 30s
+   * and two of them before the socket is destroyed. Tests shorten it.
+   */
+  wsHeartbeat?: { intervalMs?: number; missedLimit?: number }
 }
 
 export interface LoginRateLimit { maxFailures: number; windowMs: number }
@@ -528,6 +622,7 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
   const loginFailures = new Map<string, number[]>()
 
   const handshakeGuard = createHandshakeGuard(options.handshake ?? {})
+  const wsHeartbeatOptions = options.wsHeartbeat ?? {}
 
   /** Retry-after seconds while the source address is throttled, or 0 when free to try. */
   function loginThrottled(key: string): number {
@@ -1045,9 +1140,26 @@ async function compressIfEligible(
       // The client's first frame may already sit in `head`; it must reach the
       // upstream inside the upgrade window or the mux protocol misses it.
       if (upstreamHead?.length > 0) socket.write(upstreamHead)
+      let heartbeat: WsHeartbeat | undefined
+      const teardown = (): void => {
+        heartbeat?.dispose()
+        heartbeat = undefined
+        resetAndDestroyUpstream(upstreamSocket)
+        socket.destroy()
+      }
+      // Liveness is counted from inbound data on the client socket (no ping/pong
+      // API exists at this layer): a sleeping phone stops sending, two silent
+      // intervals destroy the pair, and the browser reconnects.
+      heartbeat = createWsHeartbeat({
+        onDead: () => {
+          void logAccess({ kind: 'ws', url, status: 101, durationMs: Date.now() - start, reason: 'heartbeat-timeout' })
+          teardown()
+        },
+        ...wsHeartbeatOptions,
+      })
+      socket.on('data', () => { heartbeat?.noteActivity() })
       upstreamSocket.pipe(socket)
       socket.pipe(upstreamSocket)
-      const teardown = (): void => { upstreamSocket.destroy(); socket.destroy() }
       upstreamSocket.on('close', teardown)
       socket.on('close', teardown)
       upstreamSocket.on('error', teardown)
