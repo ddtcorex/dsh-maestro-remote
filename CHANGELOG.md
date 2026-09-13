@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0] - 2026-09-13
+
+### Added
+
+- Configurable PIN session TTL, default 1 day (#48).
+- Self-healing tunnel watchdog with backoff retry (#46).
+- Rotated, age-pruned proxy access log (#45).
+
+### Fixed
+
+- **The LAN PIN gate is usable** — login and the gate now choose the governing
+  PIN with the same host-class predicate and mint class-specific cookies
+  (`maestro_pin` / `maestro_lan_pin`), so the advertised LAN URL + LAN PIN
+  pair can actually produce a cookie the gate accepts; the card also advertises
+  the LAN listener URL instead of the public one (#49, #50).
+- Declare row `inject` for the rpc row on DSH 0.1.5 (#47).
+
 ## [0.2.2] - 2026-09-06
 
 ### Fixed
