@@ -119,3 +119,22 @@ describe('login throttling per forwarded client', () => {
     }
   })
 })
+
+describe('loopback trust is limited to the LAN listener', () => {
+  it('opts in exactly once, and never on the public ingress', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(new URL('../src/host/tunnel.ts', import.meta.url), 'utf8')
+    const optIns = src.match(/trustLoopback:\s*true/g) ?? []
+    expect(optIns).toHaveLength(1)
+
+    // The public ingress must not opt in: cloudflared runs on this host, so
+    // every tunnelled request arrives from loopback too - trusting it there
+    // would remove the public PIN entirely. Pin which call site has it.
+    const calls = src.split('createRemoteProxy({').slice(1)
+    const withTrust = calls.filter((c) => /trustLoopback:\s*true/.test(c))
+    expect(withTrust).toHaveLength(1)
+    // The LAN listener is the later call site and is the one that must carry it.
+    expect(calls.indexOf(withTrust[0])).toBe(calls.length - 1)
+    expect(withTrust[0]).toContain("isPublic: () => policyHost(false, 'lan')")
+  })
+})
