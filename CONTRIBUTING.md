@@ -17,7 +17,7 @@ Thank you for contributing to **dsh-maestro-remote** (`@ddtcorex/dsh-maestro-rem
    pnpm build        # tsc -> lib/
    ```
 
-4. Open the project in your editor. Host logic lives in `src/host/`, tests in `tests/`. `lib/` is committed build output — do not hand-edit.
+4. Open the project in your editor. Host logic lives in `src/host/`, tests in `tests/`. `lib/` is build output (gitignored) — never hand-edit it; run `pnpm build` after a source change.
 
 ## Superpowers 3-Phase Workflow (AGENTS.md)
 
