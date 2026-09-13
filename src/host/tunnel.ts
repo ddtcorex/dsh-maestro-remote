@@ -339,8 +339,9 @@ export function apply(ctx: Context): void {
             isPublic: (host) => isPublicHost(host, configuredHostname),
             getPin: () => readPin(),
             getPinSessionTtlHours: configuredPinSessionTtlHours,
-            // Opt-in: an untouched config keeps LAN access open. The login
-            // page and cookie flow are shared with the public PIN gate.
+            // Opt-in: an untouched config keeps LAN access open. LAN-class hosts
+            // are governed by the LAN PIN, so `rotateLanPin` rotates a PIN the
+            // gate actually accepts.
             ...(bootConfig.lanPinEnabled === true ? { getLanPin: () => readLanPin() } : {}),
           },
           getDshToken: readDshToken,
@@ -402,9 +403,9 @@ export function apply(ctx: Context): void {
             isPublic: () => false,
             getPin: () => readPin(),
             getPinSessionTtlHours: configuredPinSessionTtlHours,
-            // Single-PIN model: the local listener reuses the public PIN, so
-            // the shared login page and cookie flow work unchanged.
-            ...(bootConfig.lanPinEnabled === true ? { getLanPin: () => readPin() } : {}),
+            // Every host on this listener is LAN-class, so the LAN PIN governs
+            // it (its own cookie name keeps a public session unaffected).
+            ...(bootConfig.lanPinEnabled === true ? { getLanPin: () => readLanPin() } : {}),
           },
           getDshToken: readDshToken,
           gateExemptPathPrefixes: ['/dsh-maestro-supervisor-resume'],

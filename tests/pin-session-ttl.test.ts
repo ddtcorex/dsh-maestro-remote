@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_PIN_SESSION_TTL_HOURS,
   MAX_PIN_SESSION_TTL_HOURS,
+  PIN_COOKIE,
   resolvePinSessionTtlHours,
   pinSessionCookie,
 } from '../src/host/remote-proxy.ts'
@@ -40,7 +41,7 @@ describe('resolvePinSessionTtlHours', () => {
 
 describe('pinSessionCookie', () => {
   it('always keeps the hardened attributes and the bare PIN value', () => {
-    const cookie = pinSessionCookie('12345678', 24)
+    const cookie = pinSessionCookie(PIN_COOKIE, '12345678', 24)
     expect(cookie.startsWith('maestro_pin=12345678;')).toBe(true)
     expect(cookie).toContain('HttpOnly')
     expect(cookie).toContain('SameSite=Lax')
@@ -51,19 +52,19 @@ describe('pinSessionCookie', () => {
 
   it('adds Max-Age and a matching Expires for a positive lifetime', () => {
     const before = Date.now()
-    const cookie = pinSessionCookie('12345678', 24)
+    const cookie = pinSessionCookie(PIN_COOKIE, '12345678', 24)
     expect(cookie).toContain('Max-Age=86400')
     const expires = /Expires=([^;]+)/.exec(cookie)?.[1]
     expect(expires).toBeDefined()
     const at = new Date(String(expires)).getTime()
     expect(at).toBeGreaterThanOrEqual(before + 86_400_000 - 5_000)
     expect(at).toBeLessThanOrEqual(before + 86_400_000 + 5_000)
-    expect(pinSessionCookie('12345678', 1)).toContain('Max-Age=3600')
-    expect(pinSessionCookie('12345678', 168)).toContain('Max-Age=604800')
+    expect(pinSessionCookie(PIN_COOKIE, '12345678', 1)).toContain('Max-Age=3600')
+    expect(pinSessionCookie(PIN_COOKIE, '12345678', 168)).toContain('Max-Age=604800')
   })
 
   it('emits a session cookie (no Max-Age, no Expires) for zero', () => {
-    const cookie = pinSessionCookie('12345678', 0)
+    const cookie = pinSessionCookie(PIN_COOKIE, '12345678', 0)
     expect(cookie).toBe('maestro_pin=12345678; HttpOnly; SameSite=Lax; Path=/')
   })
 })

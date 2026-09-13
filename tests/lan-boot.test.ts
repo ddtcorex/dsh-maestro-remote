@@ -21,6 +21,7 @@ afterEach(async () => {
 interface Controller {
   proxyStatus(): { running: boolean; port?: number; lanPort?: number; lanUrls: string[]; errorMessage?: string; deploymentError?: string }
   getPin(): Promise<string>
+  getLanPin(): Promise<string>
   initialReady(): Promise<void>
   stop(): Promise<unknown>
 }
@@ -63,7 +64,8 @@ describe('maestroTunnel LAN proxy listener', () => {
       expect(page.status).toBe(200)
       expect(await page.text()).toContain('maestro-login-card')
 
-      const pin = await tunnel.getPin()
+      // Every host on the LAN listener is LAN-class, so its gate is the LAN PIN.
+      const pin = await tunnel.getLanPin()
       const login = await fetch(`http://127.0.0.1:${lanPort}/maestro-login`, {
         method: 'POST',
         headers: { host: 'lan.example.com', 'content-type': 'application/x-www-form-urlencoded' },
@@ -72,7 +74,7 @@ describe('maestroTunnel LAN proxy listener', () => {
       })
       expect(login.status).toBe(302)
       const cookie = login.headers.get('set-cookie') ?? ''
-      expect(cookie).toContain('maestro_pin=')
+      expect(cookie).toContain('maestro_lan_pin=')
 
       // Gate passed -> the request reaches the (unreachable) upstream: 502, not the login page.
       const after = await fetch(`http://127.0.0.1:${lanPort}/`, { headers: { host: 'lan.example.com', cookie } })

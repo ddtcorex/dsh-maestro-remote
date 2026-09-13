@@ -43,9 +43,23 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return out
 }
 
-/** Whether the request carries the current PIN via session cookie (form login only; `?pin=` removed). */
-export function isPinAuthorized(req: PinRequestFacts, pin: string): boolean {
-  const cookiePin = parseCookies(req.headers.cookie)['maestro_pin']
+/** Cookie carrying the public host class PIN (the tunnel hostname). */
+export const PIN_COOKIE = 'maestro_pin'
+/**
+ * Cookie carrying the non-public (LAN) host class PIN. A separate name on
+ * purpose: one browser must be able to hold both sessions at once, and a single
+ * name would make the two PINs overwrite each other.
+ */
+export const LAN_PIN_COOKIE = 'maestro_lan_pin'
+
+/** Cookie name that governs a host class — the one place that mapping lives. */
+export function pinCookieName(isPublic: boolean): string {
+  return isPublic ? PIN_COOKIE : LAN_PIN_COOKIE
+}
+
+/** Whether the request carries the current PIN for this host class (form login only; `?pin=` removed). */
+export function isPinAuthorized(req: PinRequestFacts, pin: string, cookieName: string = PIN_COOKIE): boolean {
+  const cookiePin = parseCookies(req.headers.cookie)[cookieName]
   return secretsMatch(cookiePin, pin)
 }
 
@@ -244,11 +258,11 @@ export function resolvePinSessionTtlHours(value: unknown): number {
  * `Max-Age`); `0` keeps the session cookie. No `Secure`: the LAN listener
  * serves plain HTTP.
  */
-export function pinSessionCookie(pin: string, ttlHours: number): string {
-  if (ttlHours <= 0) return `maestro_pin=${pin}; HttpOnly; SameSite=Lax; Path=/`
+export function pinSessionCookie(name: string, pin: string, ttlHours: number): string {
+  if (ttlHours <= 0) return `${name}=${pin}; HttpOnly; SameSite=Lax; Path=/`
   const seconds = Math.round(ttlHours * 3600)
   const expires = new Date(Date.now() + seconds * 1000).toUTCString()
-  return `maestro_pin=${pin}; Max-Age=${seconds}; Expires=${expires}; HttpOnly; SameSite=Lax; Path=/`
+  return `${name}=${pin}; Max-Age=${seconds}; Expires=${expires}; HttpOnly; SameSite=Lax; Path=/`
 }
 
 export interface RemoteProxyHandle {
@@ -391,9 +405,10 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
 
   async function authorized(req: IncomingMessage): Promise<boolean> {
     const facts = { headers: req.headers as { cookie?: string }, url: req.url ?? '/' }
-    if (auth.isPublic(req.headers.host)) return isPinAuthorized(facts, await auth.getPin())
+    const isPublic = auth.isPublic(req.headers.host)
+    if (isPublic) return isPinAuthorized(facts, await auth.getPin(), PIN_COOKIE)
     if (auth.getLanPin === undefined) return true
-    return isPinAuthorized(facts, await auth.getLanPin())
+    return isPinAuthorized(facts, await auth.getLanPin(), LAN_PIN_COOKIE)
   }
 
   function collectBody(req: IncomingMessage, limit = 1024): Promise<string> {
@@ -427,13 +442,31 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
     }
     const params = new URLSearchParams(await collectBody(req))
     const submitted = params.get('pin') ?? params.get('token') ?? ''
-    const pin = await auth.getPin()
-    if (secretsMatch(submitted, pin)) {
+    // Login must pick the PIN with the SAME predicate the gate uses, or the two
+    // can disagree — the defect this handler used to have (a non-public host was
+    // gated on the LAN PIN while login only ever accepted the public one, so no
+    // cookie could satisfy the gate).
+    const isPublic = auth.isPublic(req.headers.host)
+    const governingPin = isPublic
+      ? await auth.getPin()
+      : auth.getLanPin === undefined ? undefined : await auth.getLanPin()
+    if (governingPin === undefined) {
+      // Non-public host with the LAN gate off: nothing to authenticate.
+      clearLoginFailures(remoteAddress)
+      res.writeHead(302, { location: '/', 'cache-control': 'no-store' })
+      res.end()
+      return
+    }
+    if (secretsMatch(submitted, governingPin)) {
       clearLoginFailures(remoteAddress)
       const ttlHours = auth.getPinSessionTtlHours === undefined
         ? DEFAULT_PIN_SESSION_TTL_HOURS
         : resolvePinSessionTtlHours(await auth.getPinSessionTtlHours())
-      res.writeHead(302, { location: '/', 'set-cookie': pinSessionCookie(pin, ttlHours), 'cache-control': 'no-store' })
+      res.writeHead(302, {
+        location: '/',
+        'set-cookie': pinSessionCookie(pinCookieName(isPublic), governingPin, ttlHours),
+        'cache-control': 'no-store',
+      })
       res.end()
       return
     }
