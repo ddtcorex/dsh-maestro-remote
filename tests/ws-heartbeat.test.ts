@@ -7,6 +7,7 @@ import {
   resetAndDestroyUpstream,
   WS_HEARTBEAT_INTERVAL_MS,
   WS_HEARTBEAT_MISSED_LIMIT,
+  WS_PING_FRAME,
 } from '../src/host/remote-proxy.ts'
 
 describe('createWsHeartbeat', () => {
@@ -65,6 +66,21 @@ describe('createWsHeartbeat', () => {
     timers[0]?.()
     expect(dead).toBe(0)
     expect(heartbeat.disposed).toBe(true)
+  })
+
+  it('asks the caller to probe (ping) on every silent interval', () => {
+    const timers: Array<() => void> = []
+    let idles = 0
+    createWsHeartbeat(
+      { onDead: () => {}, onIdle: () => { idles += 1 } },
+      {
+        setInterval: (handler) => { timers.push(handler); return 3 as unknown as ReturnType<typeof setInterval> },
+        clearInterval: () => {},
+      },
+    )
+    timers[0]?.()
+    timers[0]?.()
+    expect(idles).toBe(2)
   })
 
   it('probes every 30s and tolerates two silent intervals in production', () => {
@@ -165,6 +181,42 @@ describe('WebSocket liveness through the proxy', () => {
       await waitFor(() => upstream.closed() === 1)
       expect(upstream.closed()).toBe(1)
     } finally {
+      await proxy.close()
+      upstream.server.close()
+    }
+  })
+
+  it('keeps an idle client that answers the ping, so a quiet session is not killed', async () => {
+    // DSH's client sends nothing of its own while idle, so a heartbeat that
+    // only watches client traffic would tear down healthy sessions every
+    // interval. RFC 6455 requires a pong in reply to a ping, which is the
+    // liveness signal this test pins.
+    const upstream = await upgradeUpstream()
+    const proxy = await createRemoteProxy({
+      port: 0,
+      host: '127.0.0.1',
+      upstream: { host: '127.0.0.1', port: upstream.port },
+      auth: { isPublic: () => false, getPin: async () => '11112222' },
+      wsHeartbeat: { intervalMs: 25, missedLimit: 2 },
+    })
+    const { socket } = await openUpgrade(proxy.port)
+    let pings = 0
+    const respondToPing = (chunk: Buffer): void => {
+      // A client frame is masked: empty pong = 0x8A, mask bit, 4-byte key.
+      if (chunk.includes(WS_PING_FRAME[0] as number)) {
+        pings += 1
+        if (!socket.destroyed) socket.write(Buffer.from([0x8a, 0x80, 0, 0, 0, 0]))
+      }
+    }
+    socket.on('data', respondToPing)
+    try {
+      // Six probe intervals, no client chatter of its own.
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(pings).toBeGreaterThan(0)
+      expect(socket.destroyed).toBe(false)
+      expect(upstream.closed()).toBe(0)
+    } finally {
+      socket.off('data', respondToPing)
       await proxy.close()
       upstream.server.close()
     }

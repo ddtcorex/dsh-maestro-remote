@@ -67,10 +67,26 @@ export function isPinAuthorized(req: PinRequestFacts, pin: string, cookieName: s
 export const WS_HEARTBEAT_INTERVAL_MS = 30_000
 /** Silent intervals tolerated before the socket is destroyed (spec D8). */
 export const WS_HEARTBEAT_MISSED_LIMIT = 2
+/**
+ * Empty RFC 6455 ping frame (FIN + opcode 0x9).
+ *
+ * The liveness probe cannot rely on client *data*: DSH's browser client sends
+ * nothing of its own while a session is idle, so a data-only heartbeat would
+ * destroy healthy sockets. A ping is answered by the browser's networking stack
+ * (a pong, which is not visible to page JS) unless the peer is really gone,
+ * which is exactly the signal the teardown wants.
+ */
+export const WS_PING_FRAME = Buffer.from([0x89, 0x00])
 
 export interface WsHeartbeatOptions {
   /** Called once when the peer stayed silent for `missedLimit` intervals. */
   onDead: () => void
+  /**
+   * Called on every interval that saw no traffic, before the miss is counted —
+   * the place to probe the peer (write a ping). A pong arrives as inbound data
+   * and resets the counter, so an idle-but-alive peer is never torn down.
+   */
+  onIdle?: () => void
   /** Probe interval; 30s in production. */
   intervalMs?: number
   /** Consecutive silent intervals before `onDead`; 2 in production. */
@@ -113,6 +129,7 @@ export function createWsHeartbeat(options: WsHeartbeatOptions, deps: WsHeartbeat
   const tick = (): void => {
     if (disposed) return
     missed += 1
+    options.onIdle?.()
     if (missed >= missedLimit) {
       disposed = true
       if (timer !== undefined) stopTimer(timer)
@@ -1176,6 +1193,9 @@ async function compressIfEligible(
         onDead: () => {
           void logAccess({ kind: 'ws', url, status: 101, durationMs: Date.now() - start, reason: 'heartbeat-timeout' })
           teardown()
+        },
+        onIdle: () => {
+          try { socket.write(WS_PING_FRAME) } catch { /* closing socket */ }
         },
         ...wsHeartbeatOptions,
       })
