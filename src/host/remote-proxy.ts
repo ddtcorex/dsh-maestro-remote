@@ -194,6 +194,28 @@ export function clearDshAuthCookies(cookieHeader: string | undefined): string[] 
   return clearHeaders
 }
 
+const DESKTOP_QUERY_PREFIX = 'dsh-desktop-'
+
+/**
+ * Drop the `dsh-desktop-*` bootstrap parameters the desktop shell appends to
+ * its first URL. They mean nothing to dsh web, and forwarding them leaks the
+ * shell's handoff values into the upstream request and its logs.
+ */
+export function stripDesktopQueryParams(url: string): string {
+  const queryStart = url.indexOf('?')
+  if (queryStart === -1) return url
+  const hashStart = url.indexOf('#', queryStart)
+  const path = url.slice(0, queryStart)
+  const query = hashStart === -1 ? url.slice(queryStart + 1) : url.slice(queryStart + 1, hashStart)
+  const hash = hashStart === -1 ? '' : url.slice(hashStart)
+  const params = new URLSearchParams(query)
+  const dropped = [...params.keys()].filter((key) => key.startsWith(DESKTOP_QUERY_PREFIX))
+  if (dropped.length === 0) return url
+  for (const key of dropped) params.delete(key)
+  const remaining = params.toString()
+  return `${path}${remaining === '' ? '' : `?${remaining}`}${hash}`
+}
+
 // Copied verbatim from dsh-pocket's proven implementation rather than hand-rolled — it is
 // exercised in production there.
 const RANDOM_UUID_POLYFILL = `<script data-maestro-polyfill="1">!function(){try{if(self.crypto&&!self.crypto.randomUUID){self.crypto.randomUUID=function(){var b=new Uint8Array(16);self.crypto.getRandomValues(b);b[6]=b[6]&15|64;b[8]=b[8]&63|128;var h="";for(var i=0;i<16;i++){var x=b[i].toString(16);self.crypto.getRandomValues(b);h+=(x.length<2?"0":"")+x;if(i===3||i===5||i===7||i===9)h+="-";}return h;}}}catch(e){}}();</script>`
@@ -973,7 +995,7 @@ async function compressIfEligible(
    * `guidance` means the identity already used up its handshakes.
    */
   async function maybeInjectDshToken(req: IncomingMessage): Promise<TokenInjection> {
-    const rawUrl = req.url ?? '/'
+    const rawUrl = stripDesktopQueryParams(req.url ?? '/')
     if (options.getDshToken === undefined) return { url: rawUrl, injected: false, guidance: false }
     if (hasDshAuthCookie(req)) return { url: rawUrl, injected: false, guidance: false }
     // Only for index HTML where BrowserAuth expects ?token= — API already
@@ -1129,7 +1151,7 @@ async function compressIfEligible(
     }
     const headers: Record<string, string | string[] | undefined> = { ...req.headers }
     loopbackAuthority(headers, upstream)
-    const upstreamReq = httpRequest({ host: upstream.host, port: upstream.port, method: req.method, path: req.url, headers, agent: false })
+    const upstreamReq = httpRequest({ host: upstream.host, port: upstream.port, method: req.method, path: stripDesktopQueryParams(req.url ?? '/'), headers, agent: false })
     upstreamReq.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
       void logAccess({ kind: 'ws', url, status: 101, durationMs: Date.now() - start })
       const lines = ['HTTP/1.1 101 Switching Protocols']

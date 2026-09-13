@@ -9,6 +9,7 @@ import { createRemoteProxy, lanUrls, policyHost, resolvePinSessionTtlHours, type
 import { resolveCloudflared } from './cloudflared-fetch.js'
 import { scheduleStartupNotification } from './startup-notify.js'
 import { createTunnelWatchdog } from './tunnel-watchdog.js'
+import { createSerializedWriter } from './serialized-writes.js'
 
 const QUICK_TUNNEL_URL_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i
 
@@ -17,6 +18,8 @@ export interface QuickTunnelHandle {
   kill: () => void
   /** Register a callback fired when the cloudflared process exits; returns an unsubscriber. */
   onExit?: (callback: (code: number | null) => void) => () => void
+  /** Output collected from the child, for a first-meaningful-line error message. */
+  output?: () => string
 }
 
 export interface StartQuickTunnelOptions {
@@ -66,9 +69,7 @@ export function startQuickTunnel({ port, timeoutMs = 30_000, home, signal, onPha
     const timer = setTimeout(() => {
       cleanup()
       child.kill()
-      rejectPromise(new Error(
-        `cloudflared quick tunnel timed out after ${timeoutMs}ms — a proxy/VPN in TUN mode can block the tunnel; quit it and retry`,
-      ))
+      rejectPromise(new Error(quickTunnelTimeoutMessage(timeoutMs, buf)))
     }, timeoutMs)
     const onData = (chunk: Buffer): void => {
       buf += chunk.toString()
@@ -80,6 +81,7 @@ export function startQuickTunnel({ port, timeoutMs = 30_000, home, signal, onPha
           url: match[0],
           kill: () => { child.kill() },
           onExit: makeOnExit(child),
+          output: () => buf,
         })
       }
     }
@@ -147,12 +149,68 @@ export interface NamedTunnelHandle {
   kill: () => void
   /** Register a callback fired when the cloudflared process exits; returns an unsubscriber. */
   onExit: (callback: (code: number | null) => void) => () => void
+  /** Output collected from the child, for a first-meaningful-line error message. */
+  output: () => string
+}
+
+/** Lines that read like the actual failure. */
+const FAILURE_LINE_RE = /\b(?:error|failed|failure|incorrect usage|invalid|unable|refused|denied|not found|no such|panic|fatal|unexpected)\b/i
+/** Lines that are part of cloudflared's usage/help block. */
+const HELP_LINE_RE = /^(?:usage|name|flags?|commands?|global options|arguments?|description|examples?|help|version)\b[:\s]/i
+/** The `cloudflared <command> ...` synopsis line of a help block. */
+const SYNOPSIS_LINE_RE = /^cloudflared\b/i
+
+/**
+ * The first line of cloudflared output that explains the failure.
+ *
+ * The last line is useless here: a rejected flag or config makes cloudflared
+ * print its whole usage block, so the tail is help text. Prefer the first line
+ * that reads like a failure; otherwise the first line that is neither help nor
+ * a flag.
+ */
+export function firstMeaningfulErrorLine(output: string): string | undefined {
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+  const explicit = lines.find((line) => FAILURE_LINE_RE.test(line))
+  if (explicit !== undefined) return explicit
+  return lines.find((line) => !HELP_LINE_RE.test(line) && !SYNOPSIS_LINE_RE.test(line) && !line.startsWith('-'))
+}
+
+/** Timeout message for a quick tunnel that never printed its URL, naming cloudflared's own reason when there is one. */
+export function quickTunnelTimeoutMessage(timeoutMs: number, output: string): string {
+  const reason = firstMeaningfulErrorLine(output)
+  return `cloudflared quick tunnel timed out after ${timeoutMs}ms — ${reason ?? 'cloudflared printed no reason'} — a proxy/VPN in TUN mode can block the tunnel; quit it and retry`
+}
+
+/** argv for the named-tunnel child. `--no-autoupdate` keeps a long-running tunnel from restarting itself mid-session. */
+export function namedTunnelArgs(configPath: string, tunnelId: string): string[] {
+  return ['tunnel', '--no-autoupdate', '--config', configPath, 'run', tunnelId]
+}
+
+/** Keep the first bytes of child output so an error line is still available after exit. */
+function createOutputBuffer(limit = 8192): { push: (chunk: Buffer | string) => void; text: () => string } {
+  let kept = ''
+  return {
+    push(chunk: Buffer | string): void {
+      if (kept.length >= limit) return
+      kept += typeof chunk === 'string' ? chunk : chunk.toString('utf8')
+      if (kept.length > limit) kept = kept.slice(0, limit)
+    },
+    text(): string {
+      return kept
+    },
+  }
 }
 
 /** Spawn a named (locally-managed) tunnel using a config.yml written by writeNamedTunnelConfig. */
 export function startNamedTunnel({ configPath, tunnelId }: { configPath: string; tunnelId: string }): NamedTunnelHandle {
-  const child = spawn('cloudflared', ['tunnel', '--config', configPath, 'run', tunnelId], { stdio: ['ignore', 'pipe', 'pipe'] })
-  return { process: child, kill: () => { child.kill() }, onExit: makeOnExit(child) }
+  const child = spawn('cloudflared', namedTunnelArgs(configPath, tunnelId), { stdio: ['ignore', 'pipe', 'pipe'] })
+  const output = createOutputBuffer()
+  child.stdout?.on('data', (chunk: Buffer) => output.push(chunk))
+  child.stderr?.on('data', (chunk: Buffer) => output.push(chunk))
+  return { process: child, kill: () => { child.kill() }, onExit: makeOnExit(child), output: () => output.text() }
 }
 
 export interface TunnelStatus {
@@ -280,6 +338,15 @@ export function apply(ctx: Context): void {
    * explicit stop clears that intent and cancels every pending retry.
    */
   const watchdog = createTunnelWatchdog({ onRetry: () => { void retryStart() } })
+
+  /**
+   * The only writer of the boot-restore intent. Serialized so a start() and a
+   * stop() that overlap cannot interleave and let a slow `true` land after the
+   * `false`; a start() superseded by stop() skips its write entirely (spec D9).
+   */
+  const persistLastTunnelRunning = createSerializedWriter<boolean>(async (running) => {
+    await saveUserConfig({ lastTunnelRunning: running })
+  })
 
   async function retryStart(): Promise<void> {
     if (current !== undefined || starting !== undefined) return
@@ -454,7 +521,7 @@ export function apply(ctx: Context): void {
     if (mode === 'quick') {
       // Quick URLs are ephemeral — restoring one is meaningless, and keeping
       // the flag set would surprise-restore a later named configuration.
-      await saveUserConfig({ lastTunnelRunning: false })
+      await persistLastTunnelRunning(false)
       return
     }
     if (config.tunnelId === undefined || config.tunnelCredentialsFile === undefined || config.tunnelHostname === undefined) {
@@ -474,7 +541,12 @@ export function apply(ctx: Context): void {
       // An intentional stop() killed the child; that is not a failure.
       if (current === undefined) return
       current = undefined
-      status = { running: false, phase: 'error', errorMessage: `cloudflared process exited (code=${code ?? 'signal'})` }
+      // cloudflared puts an argument error at the HEAD and a runtime failure at
+      // the TAIL, so the reported line must be picked, never blindly tailed (a
+      // rejected flag would otherwise be reported as its usage text).
+      const reason = firstMeaningfulErrorLine(handle.output?.() ?? '')
+      const suffix = reason === undefined ? '' : ` — ${reason}`
+      status = { running: false, phase: 'error', errorMessage: `cloudflared process exited (code=${code ?? 'signal'})${suffix}` }
       watchdog.notifyDown()
     })
   }
@@ -518,7 +590,9 @@ export function apply(ctx: Context): void {
           current = { handle, mode: 'named', url: `https://${userConfig.tunnelHostname}`, disposeExit: watchExit(handle) }
           status = { running: true, mode: 'named', publicUrl: current.url, phase: 'ready' }
         }
-        await saveUserConfig({ lastTunnelRunning: true })
+        // A stop() that raced this start already persisted the intent: writing
+        // `true` now would resurrect a tunnel the user just turned off.
+        if (!abort.signal.aborted) await persistLastTunnelRunning(true)
         watchdog.notifyUp()
       } catch (err) {
         if (!abort.signal.aborted) {
@@ -553,7 +627,7 @@ export function apply(ctx: Context): void {
       current = undefined
     }
     status = { running: false, phase: 'idle' }
-    await saveUserConfig({ lastTunnelRunning: false })
+    await persistLastTunnelRunning(false)
     return status
   }
 

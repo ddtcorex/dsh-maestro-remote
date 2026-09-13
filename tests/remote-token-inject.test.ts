@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createServer, type Server } from 'node:http'
-import { createRemoteProxy, stripDshAuthCookies, clearDshAuthCookies } from '../src/host/remote-proxy.ts'
+import { createRemoteProxy, stripDshAuthCookies, clearDshAuthCookies, stripDesktopQueryParams } from '../src/host/remote-proxy.ts'
 
 function upstreamServer(handler: (url: string) => void): Promise<{ server: Server; port: number }> {
   return new Promise((resolve) => {
@@ -195,3 +195,56 @@ describe('PIN-only: DSH token auto-mint', () => {
   })
 })
 
+
+describe('dsh-desktop-* bootstrap params', () => {
+  it('strips them and forwards everything else', () => {
+    expect(stripDesktopQueryParams('/?dsh-desktop-session=abc&keep=1')).toBe('/?keep=1')
+    expect(stripDesktopQueryParams('/api/x?dsh-desktop-a=1&dsh-desktop-b=2')).toBe('/api/x')
+    expect(stripDesktopQueryParams('/?keep=1')).toBe('/?keep=1')
+    expect(stripDesktopQueryParams('/')).toBe('/')
+    expect(stripDesktopQueryParams('/?dsh-desktop-a=1#/route?dsh-desktop-b=2')).toBe('/#/route?dsh-desktop-b=2')
+  })
+
+  it('does not forward a dsh-desktop-* param upstream on an index request', async () => {
+    let seenUrl = ''
+    const upstream = await upstreamServer((url) => { seenUrl = url })
+    const proxy = await createRemoteProxy({
+      port: 0,
+      host: '127.0.0.1',
+      upstream: { host: '127.0.0.1', port: upstream.port },
+      auth: { isPublic: () => true, getPin: async () => '12345678' },
+    })
+    try {
+      const res = await fetch(`http://127.0.0.1:${proxy.port}/?dsh-desktop-session=abc&keep=1`, {
+        headers: { cookie: 'maestro_pin=12345678' },
+      })
+      expect(res.status).toBe(200)
+      expect(seenUrl).toBe('/?keep=1')
+    } finally {
+      await proxy.close()
+      upstream.server.close()
+    }
+  })
+
+  it('does not forward them on a non-index path either', async () => {
+    let seenUrl = ''
+    const upstream = await upstreamServer((url) => { seenUrl = url })
+    const proxy = await createRemoteProxy({
+      port: 0,
+      host: '127.0.0.1',
+      upstream: { host: '127.0.0.1', port: upstream.port },
+      auth: { isPublic: () => true, getPin: async () => '12345678' },
+      getDshToken: async () => 'tok-xyz',
+    })
+    try {
+      const res = await fetch(`http://127.0.0.1:${proxy.port}/api/session?dsh-desktop-handoff=secret`, {
+        headers: { cookie: 'maestro_pin=12345678' },
+      })
+      expect(res.status).toBe(200)
+      expect(seenUrl).toBe('/api/session')
+    } finally {
+      await proxy.close()
+      upstream.server.close()
+    }
+  })
+})
