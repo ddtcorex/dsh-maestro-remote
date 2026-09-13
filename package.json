@@ -3,6 +3,14 @@
   "private": false,
   "version": "0.3.0",
   "description": "Maestro remote — tunnel + remote-proxy + PIN + QR for DeepSeek Harness",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ddtcorex/dsh-maestro-remote.git"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
