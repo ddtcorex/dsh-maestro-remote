@@ -170,6 +170,11 @@ export interface ProxyStatus {
   /** Local/LAN PIN-gated listener port when `lanPort` is configured. */
   lanPort?: number
   lanUrls: string[]
+  /**
+   * Whether the LAN URLs above are PIN-gated. The card pairs a URL with a
+   * credential, so it must not have to infer which PIN (if any) applies.
+   */
+  lanPinRequired?: boolean
   errorMessage?: string
   /**
    * Fail-closed deployment contract (2026-09-02 local-pin-gate): when the raw
@@ -350,7 +355,12 @@ export function apply(ctx: Context): void {
         if (candidate !== requestedPort) {
           ctx.logger?.warn?.(`maestro-tunnel: proxy port ${requestedPort} busy — listening on ${candidate} instead`)
         }
-        proxyState = { running: true, port: handle.port, lanUrls: lanUrls(handle.port) }
+        proxyState = {
+          running: true,
+          port: handle.port,
+          lanUrls: lanUrls(handle.port),
+          lanPinRequired: bootConfig.lanPinEnabled === true,
+        }
         proxyState.lanPort = lanPort
         // Fail-closed deployment contract (2026-09-02 local-pin-gate): moving
         // the raw webserver off the canonical :3080 is only valid together
@@ -372,6 +382,10 @@ export function apply(ctx: Context): void {
         // bound, not the configured request that may have been walked past.
         proxyPort = handle.port
         await bootLanProxy(bootConfig)
+        // The LAN listener is the entry a device on the network should use, so
+        // advertise ITS port — pairing the public listener's port with the LAN
+        // PIN produced a URL+PIN combination that could not log in.
+        proxyState.lanUrls = lanUrls(lanPort ?? handle.port)
         return
       } catch (err) {
         lastError = err

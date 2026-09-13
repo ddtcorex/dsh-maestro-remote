@@ -19,7 +19,7 @@ afterEach(async () => {
 })
 
 interface Controller {
-  proxyStatus(): { running: boolean; port?: number; lanPort?: number; lanUrls: string[]; errorMessage?: string; deploymentError?: string }
+  proxyStatus(): { running: boolean; port?: number; lanPort?: number; lanUrls: string[]; lanPinRequired?: boolean; errorMessage?: string; deploymentError?: string }
   getPin(): Promise<string>
   getLanPin(): Promise<string>
   initialReady(): Promise<void>
@@ -52,6 +52,23 @@ async function boot(settings: Record<string, unknown>, webPort = 1, webStartupPo
 }
 
 describe('maestroTunnel LAN proxy listener', () => {
+  it('advertises the LAN listener URL and the fact that a PIN is required', async () => {
+    const { tunnel, teardown } = await boot({ lanPort: 0, lanPinEnabled: true })
+    try {
+      const status = tunnel.proxyStatus()
+      // The card must describe the listener the LAN PIN actually opens;
+      // advertising the public listener's port paired with the LAN PIN was the
+      // defect (an unloggable URL+PIN pair).
+      expect(status.lanPinRequired).toBe(true)
+      if (status.lanUrls.length > 0) {
+        expect(status.lanUrls[0]).toContain(`:${status.lanPort}`)
+        expect(status.lanUrls[0]).not.toContain(`:${status.port}`)
+      }
+    } finally {
+      teardown()
+    }
+  })
+
   it('boots a second PIN-gated listener when lanPort is set; LAN login then passes through', async () => {
     const { ctx, tunnel, teardown } = await boot({ lanPort: 0, lanPinEnabled: true })
     try {
