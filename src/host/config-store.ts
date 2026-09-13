@@ -44,6 +44,12 @@ export interface MaestroUserConfig {
   lanPort?: number
   /** Bind host for the local proxy listener; defaults to '0.0.0.0'. */
   lanHost?: string
+  /**
+   * Login-cookie lifetime for the PIN gate, in hours. `0` = session cookie
+   * (expires when the browser closes); absent = the host default (24).
+   * Read per login, so changing it needs no restart.
+   */
+  pinSessionTtlHours?: number
   /** Telegram Bot API credentials for one-way notifications. */
   telegramBotToken?: string
   telegramChatId?: string

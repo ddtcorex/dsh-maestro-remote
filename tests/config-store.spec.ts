@@ -52,4 +52,11 @@ describe('config-store v2 (lib-backed adapter)', () => {
     const st = await stat(join(home, 'dsh-maestro-remote', 'runtime.json'))
     expect(st.mode & 0o777).toBe(0o600)
   })
+
+  it('round-trips pinSessionTtlHours into the tunnel domain', async () => {
+    await saveUserConfig({ pinSessionTtlHours: 8 }, home)
+    expect((await loadUserConfig(home)).pinSessionTtlHours).toBe(8)
+    const store = JSON.parse(await readFile(join(home, 'dsh-maestro-config', 'settings.json'), 'utf8'))
+    expect(store.domains.tunnel.pinSessionTtlHours).toBe(8)
+  })
 })

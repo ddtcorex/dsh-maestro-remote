@@ -172,6 +172,13 @@ export interface RemoteProxyAuth {
   getPin: () => Promise<string>
   /** When present, non-public hosts are gated behind this second PIN. */
   getLanPin?: () => Promise<string>
+  /**
+   * Login-cookie lifetime in hours, read per login so a settings change needs
+   * no restart. Absent = DEFAULT_PIN_SESSION_TTL_HOURS (a persistent cookie);
+   * `0` = session cookie. The returned value is passed through
+   * `resolvePinSessionTtlHours`, so a raw config value is safe to return.
+   */
+  getPinSessionTtlHours?: () => Promise<number | undefined>
 }
 
 export interface RemoteProxyOptions {
@@ -210,6 +217,39 @@ export interface LoginRateLimit { maxFailures: number; windowMs: number }
 const DEFAULT_LOGIN_RATE_LIMIT: LoginRateLimit = { maxFailures: 5, windowMs: 10 * 60_000 }
 /** Cap on tracked source addresses so the failure map cannot grow unbounded. */
 const MAX_TRACKED_ADDRESSES = 1000
+
+/** Lifetime of the `maestro_pin` login cookie in hours when the setting is absent. */
+export const DEFAULT_PIN_SESSION_TTL_HOURS = 24
+/** Upper bound (365 days); a larger setting is clamped, never trusted. */
+export const MAX_PIN_SESSION_TTL_HOURS = 8760
+
+/**
+ * Resolve the configured login-cookie lifetime in hours.
+ *
+ * An absent setting means "not configured" and keeps the product default,
+ * but any *present yet unusable* value (hand-edited string, NaN, negative,
+ * absurd magnitude) fails closed to `0` — a corrupt settings file must never
+ * silently grant a longer session than the operator asked for.
+ */
+export function resolvePinSessionTtlHours(value: unknown): number {
+  if (value === undefined || value === null) return DEFAULT_PIN_SESSION_TTL_HOURS
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0
+  if (value <= 0) return 0
+  return Math.min(Math.round(value), MAX_PIN_SESSION_TTL_HOURS)
+}
+
+/**
+ * `Set-Cookie` value for a successful PIN login. `ttlHours > 0` makes the
+ * cookie persistent with a matching `Expires` (for browsers that ignore
+ * `Max-Age`); `0` keeps the session cookie. No `Secure`: the LAN listener
+ * serves plain HTTP.
+ */
+export function pinSessionCookie(pin: string, ttlHours: number): string {
+  if (ttlHours <= 0) return `maestro_pin=${pin}; HttpOnly; SameSite=Lax; Path=/`
+  const seconds = Math.round(ttlHours * 3600)
+  const expires = new Date(Date.now() + seconds * 1000).toUTCString()
+  return `maestro_pin=${pin}; Max-Age=${seconds}; Expires=${expires}; HttpOnly; SameSite=Lax; Path=/`
+}
 
 export interface RemoteProxyHandle {
   server: Server
@@ -390,7 +430,10 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
     const pin = await auth.getPin()
     if (secretsMatch(submitted, pin)) {
       clearLoginFailures(remoteAddress)
-      res.writeHead(302, { location: '/', 'set-cookie': `maestro_pin=${pin}; HttpOnly; SameSite=Lax; Path=/`, 'cache-control': 'no-store' })
+      const ttlHours = auth.getPinSessionTtlHours === undefined
+        ? DEFAULT_PIN_SESSION_TTL_HOURS
+        : resolvePinSessionTtlHours(await auth.getPinSessionTtlHours())
+      res.writeHead(302, { location: '/', 'set-cookie': pinSessionCookie(pin, ttlHours), 'cache-control': 'no-store' })
       res.end()
       return
     }
