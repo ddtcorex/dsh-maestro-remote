@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createServer, type Server } from 'node:http'
-import { createRemoteProxy, stripDshAuthCookies, clearDshAuthCookies } from '../src/host/remote-proxy.ts'
+import { createRemoteProxy, stripDshAuthCookies, clearDshAuthCookies, stripDesktopQueryParams } from '../src/host/remote-proxy.ts'
 
 function upstreamServer(handler: (url: string) => void): Promise<{ server: Server; port: number }> {
   return new Promise((resolve) => {
@@ -84,7 +84,7 @@ describe('PIN-only: DSH token auto-mint', () => {
     }
   })
 
-  it('re-injects ?token= and recovers when upstream rejects stale dsh-auth cookie with 401 on GET /', async () => {
+  it('re-injects ?token= and answers the upstream 3xx with a 200 cookie page when a stale dsh-auth cookie is rejected', async () => {
     const requests: { url: string; cookie?: string }[] = []
     const upstream = await new Promise<{ server: Server; port: number }>((resolve) => {
       const server = createServer((req, res) => {
@@ -126,10 +126,15 @@ describe('PIN-only: DSH token auto-mint', () => {
         headers: { host: 'public.example.com', cookie: 'maestro_pin=12345678; dsh-auth-old=stale-secret' },
         redirect: 'manual',
       })
-      // Proxy should have caught 401, retried with ?token=tok-recovered, and relayed 303 + fresh Set-Cookie
-      expect(res.status).toBe(303)
-      expect(res.headers.get('location')).toBe('/')
+      // The proxy caught the 401, retried with ?token=tok-recovered, and turns
+      // the upstream 3xx into a 200 page: the fresh cookie must ride a 200,
+      // because Safari drops a Set-Cookie sent on a redirect from a bare http origin.
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toContain('text/html')
       expect(res.headers.get('set-cookie')).toContain('dsh-auth-fresh=token-minted')
+      const body = await res.text()
+      expect(body).toContain('http-equiv="refresh"')
+      expect(body).toContain('url=/')
       expect(requests).toHaveLength(2)
       expect(requests[0]?.url).toBe('/')
       expect(requests[0]?.cookie).toContain('dsh-auth-old=stale-secret')
@@ -190,3 +195,56 @@ describe('PIN-only: DSH token auto-mint', () => {
   })
 })
 
+
+describe('dsh-desktop-* bootstrap params', () => {
+  it('strips them and forwards everything else', () => {
+    expect(stripDesktopQueryParams('/?dsh-desktop-session=abc&keep=1')).toBe('/?keep=1')
+    expect(stripDesktopQueryParams('/api/x?dsh-desktop-a=1&dsh-desktop-b=2')).toBe('/api/x')
+    expect(stripDesktopQueryParams('/?keep=1')).toBe('/?keep=1')
+    expect(stripDesktopQueryParams('/')).toBe('/')
+    expect(stripDesktopQueryParams('/?dsh-desktop-a=1#/route?dsh-desktop-b=2')).toBe('/#/route?dsh-desktop-b=2')
+  })
+
+  it('does not forward a dsh-desktop-* param upstream on an index request', async () => {
+    let seenUrl = ''
+    const upstream = await upstreamServer((url) => { seenUrl = url })
+    const proxy = await createRemoteProxy({
+      port: 0,
+      host: '127.0.0.1',
+      upstream: { host: '127.0.0.1', port: upstream.port },
+      auth: { isPublic: () => true, getPin: async () => '12345678' },
+    })
+    try {
+      const res = await fetch(`http://127.0.0.1:${proxy.port}/?dsh-desktop-session=abc&keep=1`, {
+        headers: { cookie: 'maestro_pin=12345678' },
+      })
+      expect(res.status).toBe(200)
+      expect(seenUrl).toBe('/?keep=1')
+    } finally {
+      await proxy.close()
+      upstream.server.close()
+    }
+  })
+
+  it('does not forward them on a non-index path either', async () => {
+    let seenUrl = ''
+    const upstream = await upstreamServer((url) => { seenUrl = url })
+    const proxy = await createRemoteProxy({
+      port: 0,
+      host: '127.0.0.1',
+      upstream: { host: '127.0.0.1', port: upstream.port },
+      auth: { isPublic: () => true, getPin: async () => '12345678' },
+      getDshToken: async () => 'tok-xyz',
+    })
+    try {
+      const res = await fetch(`http://127.0.0.1:${proxy.port}/api/session?dsh-desktop-handoff=secret`, {
+        headers: { cookie: 'maestro_pin=12345678' },
+      })
+      expect(res.status).toBe(200)
+      expect(seenUrl).toBe('/api/session')
+    } finally {
+      await proxy.close()
+      upstream.server.close()
+    }
+  })
+})

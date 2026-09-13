@@ -43,10 +43,130 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return out
 }
 
-/** Whether the request carries the current PIN via session cookie (form login only; `?pin=` removed). */
-export function isPinAuthorized(req: PinRequestFacts, pin: string): boolean {
-  const cookiePin = parseCookies(req.headers.cookie)['maestro_pin']
+/** Cookie carrying the public host class PIN (the tunnel hostname). */
+export const PIN_COOKIE = 'maestro_pin'
+/**
+ * Cookie carrying the non-public (LAN) host class PIN. A separate name on
+ * purpose: one browser must be able to hold both sessions at once, and a single
+ * name would make the two PINs overwrite each other.
+ */
+export const LAN_PIN_COOKIE = 'maestro_lan_pin'
+
+/** Cookie name that governs a host class — the one place that mapping lives. */
+export function pinCookieName(isPublic: boolean): string {
+  return isPublic ? PIN_COOKIE : LAN_PIN_COOKIE
+}
+
+/** Whether the request carries the current PIN for this host class (form login only; `?pin=` removed). */
+export function isPinAuthorized(req: PinRequestFacts, pin: string, cookieName: string = PIN_COOKIE): boolean {
+  const cookiePin = parseCookies(req.headers.cookie)[cookieName]
   return secretsMatch(cookiePin, pin)
+}
+
+/** Production liveness interval (spec D8): one silent-interval check every 30s. */
+export const WS_HEARTBEAT_INTERVAL_MS = 30_000
+/** Silent intervals tolerated before the socket is destroyed (spec D8). */
+export const WS_HEARTBEAT_MISSED_LIMIT = 2
+/**
+ * Empty RFC 6455 ping frame (FIN + opcode 0x9).
+ *
+ * The liveness probe cannot rely on client *data*: DSH's browser client sends
+ * nothing of its own while a session is idle, so a data-only heartbeat would
+ * destroy healthy sockets. A ping is answered by the browser's networking stack
+ * (a pong, which is not visible to page JS) unless the peer is really gone,
+ * which is exactly the signal the teardown wants.
+ */
+export const WS_PING_FRAME = Buffer.from([0x89, 0x00])
+
+export interface WsHeartbeatOptions {
+  /** Called once when the peer stayed silent for `missedLimit` intervals. */
+  onDead: () => void
+  /**
+   * Called on every interval that saw no traffic, before the miss is counted —
+   * the place to probe the peer (write a ping). A pong arrives as inbound data
+   * and resets the counter, so an idle-but-alive peer is never torn down.
+   */
+  onIdle?: () => void
+  /** Probe interval; 30s in production. */
+  intervalMs?: number
+  /** Consecutive silent intervals before `onDead`; 2 in production. */
+  missedLimit?: number
+}
+
+export interface WsHeartbeatDeps {
+  setInterval?: (handler: () => void, ms: number) => ReturnType<typeof setInterval>
+  clearInterval?: (handle: ReturnType<typeof setInterval>) => void
+}
+
+export interface WsHeartbeat {
+  /** Data arrived from the peer: clear the silent-interval count. */
+  noteActivity: () => void
+  /** Stop watching. Idempotent. */
+  dispose: () => void
+  readonly missed: number
+  readonly disposed: boolean
+}
+
+/**
+ * Liveness for a proxied WebSocket.
+ *
+ * Node's upgrade sockets expose no ping/pong API at this layer (the socket is
+ * the raw net.Socket handed to the `upgrade` event, not a WebSocket object), so
+ * this counts inbound DATA activity instead of protocol pings: every chunk the
+ * client sends proves the path is still open, and `missedLimit` consecutive
+ * intervals with nothing inbound means the peer is gone. A phone that sleeps or
+ * moves behind NAT loses the downlink without a FIN, so neither side notices
+ * until the connection is destroyed and the browser reconnects.
+ */
+export function createWsHeartbeat(options: WsHeartbeatOptions, deps: WsHeartbeatDeps = {}): WsHeartbeat {
+  const intervalMs = options.intervalMs ?? WS_HEARTBEAT_INTERVAL_MS
+  const missedLimit = options.missedLimit ?? WS_HEARTBEAT_MISSED_LIMIT
+  const startTimer = deps.setInterval ?? setInterval
+  const stopTimer = deps.clearInterval ?? clearInterval
+  let missed = 0
+  let disposed = false
+  let timer: ReturnType<typeof setInterval> | undefined
+  const tick = (): void => {
+    if (disposed) return
+    missed += 1
+    options.onIdle?.()
+    if (missed >= missedLimit) {
+      disposed = true
+      if (timer !== undefined) stopTimer(timer)
+      timer = undefined
+      options.onDead()
+    }
+  }
+  timer = startTimer(tick, intervalMs)
+  // Never let liveness alone keep the host process alive.
+  ;(timer as { unref?: () => void } | undefined)?.unref?.()
+  return {
+    noteActivity(): void {
+      if (!disposed) missed = 0
+    },
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      if (timer !== undefined) stopTimer(timer)
+      timer = undefined
+    },
+    get missed(): number { return missed },
+    get disposed(): boolean { return disposed },
+  }
+}
+
+/**
+ * Tear down an upstream socket by resetting it, so the upstream sees an RST
+ * instead of a clean FIN: dsh web accepts half-open connections
+ * (`allowHalfOpen`), so a FIN can leave a zombie holding a session slot. Falls
+ * back to `destroy()` on runtimes without `resetAndDestroy`.
+ */
+export function resetAndDestroyUpstream(socket: { resetAndDestroy?: () => void; destroy: () => void }): void {
+  if (typeof socket.resetAndDestroy === 'function') {
+    socket.resetAndDestroy()
+    return
+  }
+  socket.destroy()
 }
 
 /** Rewrite browser-visible authorities to the loopback upstream so DSH's /api fence sees loopback. */
@@ -89,6 +209,28 @@ export function clearDshAuthCookies(cookieHeader: string | undefined): string[] 
     }
   }
   return clearHeaders
+}
+
+const DESKTOP_QUERY_PREFIX = 'dsh-desktop-'
+
+/**
+ * Drop the `dsh-desktop-*` bootstrap parameters the desktop shell appends to
+ * its first URL. They mean nothing to dsh web, and forwarding them leaks the
+ * shell's handoff values into the upstream request and its logs.
+ */
+export function stripDesktopQueryParams(url: string): string {
+  const queryStart = url.indexOf('?')
+  if (queryStart === -1) return url
+  const hashStart = url.indexOf('#', queryStart)
+  const path = url.slice(0, queryStart)
+  const query = hashStart === -1 ? url.slice(queryStart + 1) : url.slice(queryStart + 1, hashStart)
+  const hash = hashStart === -1 ? '' : url.slice(hashStart)
+  const params = new URLSearchParams(query)
+  const dropped = [...params.keys()].filter((key) => key.startsWith(DESKTOP_QUERY_PREFIX))
+  if (dropped.length === 0) return url
+  for (const key of dropped) params.delete(key)
+  const remaining = params.toString()
+  return `${path}${remaining === '' ? '' : `?${remaining}`}${hash}`
 }
 
 // Copied verbatim from dsh-pocket's proven implementation rather than hand-rolled — it is
@@ -197,6 +339,11 @@ export interface RemoteProxyOptions {
    */
   loginRateLimit?: LoginRateLimit
   /**
+   * Skip the PIN gate for requests whose TCP peer is loopback. Set this ONLY on
+   * the LAN/local listener — see `loopbackTrusted`. Off by default.
+   */
+  trustLoopback?: boolean
+  /**
    * PIN-only UX: after a valid maestro_pin, the proxy mints the DSH
    * BrowserAuth cookie on the user's behalf so the Web UI never shows
    * the ?token= exchange. The upstream token is read via
@@ -210,6 +357,24 @@ export interface RemoteProxyOptions {
    * never on the public listener, which must stay fully PIN-gated.
    */
   gateExemptPathPrefixes?: string[]
+  /**
+   * Token-handshake guard (spec D7): Safari drops a `Set-Cookie` carried by a
+   * 3xx from a bare http origin, which turns the launch-token exchange into an
+   * endless loop. After this many handshakes from one client identity inside the
+   * window the proxy serves guidance instead of re-injecting the token;
+   * `?retry` resets the counter. Defaults: 3 per 60s.
+   */
+  handshake?: { maxHandshakes?: number; windowMs?: number }
+  /**
+   * Test seam for the peer classification the handshake guard uses; production
+   * defaults to `isLoopbackAddress`. Never used to decide the PIN gate.
+   */
+  peerIsLoopback?: (ip: string | undefined) => boolean
+  /**
+   * WebSocket liveness (spec D8). Defaults: one silent-interval check every 30s
+   * and two of them before the socket is destroyed. Tests shorten it.
+   */
+  wsHeartbeat?: { intervalMs?: number; missedLimit?: number }
 }
 
 export interface LoginRateLimit { maxFailures: number; windowMs: number }
@@ -217,6 +382,70 @@ export interface LoginRateLimit { maxFailures: number; windowMs: number }
 const DEFAULT_LOGIN_RATE_LIMIT: LoginRateLimit = { maxFailures: 5, windowMs: 10 * 60_000 }
 /** Cap on tracked source addresses so the failure map cannot grow unbounded. */
 const MAX_TRACKED_ADDRESSES = 1000
+
+/** Forwarded-address headers, as they arrive on the Node request. */
+export interface ForwardedAddressHeaders {
+  'cf-connecting-ip'?: string | string[]
+  'x-forwarded-for'?: string | string[]
+}
+
+/** The loopback spellings a Node socket address can take. */
+export function isLoopbackAddress(ip: string | undefined): boolean {
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
+}
+
+function firstHeaderValue(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value
+  if (raw === undefined) return undefined
+  const first = raw.split(',')[0]?.trim()
+  return first === undefined || first === '' ? undefined : first
+}
+
+/**
+ * Identity a login attempt is throttled under.
+ *
+ * Behind cloudflared every public request arrives from `127.0.0.1`, so keying on
+ * the socket address puts the whole internet and the owner in one bucket: the
+ * limiter stops protecting anything and one attacker can lock the owner out.
+ * Forwarded headers are therefore trusted **only** when the TCP peer is
+ * loopback — that is our own tunnel process — because a direct client could
+ * otherwise choose someone else's bucket (or dodge its own).
+ */
+export function clientIdentity(
+  peer: string | undefined,
+  headers: ForwardedAddressHeaders,
+  isLoopback: (ip: string | undefined) => boolean = isLoopbackAddress,
+): string {
+  if (!isLoopback(peer)) return peer ?? 'unknown'
+  return firstHeaderValue(headers['cf-connecting-ip'])
+    ?? firstHeaderValue(headers['x-forwarded-for'])
+    ?? peer
+    ?? 'unknown'
+}
+
+/**
+ * Whether a request may skip the PIN because it comes from this machine.
+ *
+ * Only a listener whose traffic is *local by nature* may opt in — in practice
+ * the LAN/local listener. It must NEVER be set on the public ingress: cloudflared
+ * runs on this host, so every tunnelled request also arrives from loopback and
+ * the flag would remove the public PIN entirely.
+ */
+export function loopbackTrusted(trustLoopback: boolean, peer: string | undefined): boolean {
+  return trustLoopback && isLoopbackAddress(peer)
+}
+
+/**
+ * Whether a request belongs to the public host class.
+ *
+ * The listener's own class is authoritative and a client-supplied `Host` header
+ * can only ever *tighten* it: forging `Host: 127.0.0.1` on the public ingress
+ * used to move the request into the LAN class, which is unauthenticated when no
+ * LAN PIN is configured — a one-header bypass of the public PIN.
+ */
+export function policyHost(claimedPublic: boolean, listenerClass: 'public' | 'lan'): boolean {
+  return listenerClass === 'public' || claimedPublic
+}
 
 /** Lifetime of the `maestro_pin` login cookie in hours when the setting is absent. */
 export const DEFAULT_PIN_SESSION_TTL_HOURS = 24
@@ -244,17 +473,123 @@ export function resolvePinSessionTtlHours(value: unknown): number {
  * `Max-Age`); `0` keeps the session cookie. No `Secure`: the LAN listener
  * serves plain HTTP.
  */
-export function pinSessionCookie(pin: string, ttlHours: number): string {
-  if (ttlHours <= 0) return `maestro_pin=${pin}; HttpOnly; SameSite=Lax; Path=/`
+export function pinSessionCookie(name: string, pin: string, ttlHours: number): string {
+  if (ttlHours <= 0) return `${name}=${pin}; HttpOnly; SameSite=Lax; Path=/`
   const seconds = Math.round(ttlHours * 3600)
   const expires = new Date(Date.now() + seconds * 1000).toUTCString()
-  return `maestro_pin=${pin}; Max-Age=${seconds}; Expires=${expires}; HttpOnly; SameSite=Lax; Path=/`
+  return `${name}=${pin}; Max-Age=${seconds}; Expires=${expires}; HttpOnly; SameSite=Lax; Path=/`
 }
 
 export interface RemoteProxyHandle {
   server: Server
   port: number
   close: () => Promise<void>
+}
+
+export interface HandshakeGuardOptions {
+  /** Handshakes allowed per identity inside the window. Default 3. */
+  maxHandshakes?: number
+  /** Sliding window length. Default 60_000. */
+  windowMs?: number
+}
+
+export interface HandshakeGuard {
+  /** Record one handshake for `key`; false once the window is already full. */
+  check: (key: string) => boolean
+  /** Forget `key`'s history (`?retry`). */
+  reset: (key: string) => void
+}
+
+const DEFAULT_HANDSHAKE_LIMIT = 3
+const DEFAULT_HANDSHAKE_WINDOW_MS = 60_000
+/** Cap on tracked identities so the guard map cannot grow unbounded. */
+const MAX_TRACKED_HANDSHAKE_KEYS = 1000
+
+/**
+ * Per-identity handshake counter. The window slides, so a browser that keeps
+ * dropping the cookie stops after the cap and then recovers by itself once the
+ * window passes — an endless redirect loop never happens.
+ */
+export function createHandshakeGuard(options: HandshakeGuardOptions = {}, deps: { now?: () => number } = {}): HandshakeGuard {
+  const maxHandshakes = options.maxHandshakes ?? DEFAULT_HANDSHAKE_LIMIT
+  const windowMs = options.windowMs ?? DEFAULT_HANDSHAKE_WINDOW_MS
+  const now = deps.now ?? ((): number => Date.now())
+  const history = new Map<string, number[]>()
+  return {
+    check(key: string): boolean {
+      const at = now()
+      const recent = (history.get(key) ?? []).filter((stamp) => at - stamp < windowMs)
+      if (recent.length >= maxHandshakes) {
+        history.set(key, recent)
+        return false
+      }
+      if (!history.has(key) && history.size >= MAX_TRACKED_HANDSHAKE_KEYS) {
+        const oldest = history.keys().next().value
+        if (oldest !== undefined) history.delete(oldest)
+      }
+      recent.push(at)
+      history.set(key, recent)
+      return true
+    },
+    reset(key: string): void {
+      history.delete(key)
+    },
+  }
+}
+
+/** Whether an upstream response is the token exchange's cookie-carrying redirect. */
+export function isTokenHandshakeRedirect(statusCode: number | undefined, setCookie: string | string[] | undefined): boolean {
+  if (statusCode !== 301 && statusCode !== 302 && statusCode !== 303 && statusCode !== 307 && statusCode !== 308) return false
+  if (setCookie === undefined) return false
+  const cookies = Array.isArray(setCookie) ? setCookie : [setCookie]
+  return cookies.some((cookie) => cookie.trim() !== '')
+}
+
+/** Minimal HTML escape for a value placed in an attribute or a text node. */
+function escapeHtml(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
+}
+
+/**
+ * The 200 page that replaces the handshake's 3xx: the cookie already rode the
+ * response headers, and this meta refresh performs the navigation the redirect
+ * would have done.
+ */
+export function tokenHandshakePage(location: string): string {
+  const target = escapeHtml(location === '' ? '/' : location)
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="0; url=${target}"><title>Maestro</title></head><body><p>Signing you in</p><p><a href="${target}">Continue to Maestro</a></p></body></html>`
+}
+
+/**
+ * Served instead of a fourth handshake for the same identity: the browser is
+ * discarding the sign-in cookie, so looping again cannot help. `?retry` clears
+ * the counter once the visitor has changed whatever blocked it.
+ */
+export function handshakeGuidancePage(): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Maestro</title></head><body><h1>Maestro</h1><p>This browser is not keeping the sign-in cookie, so the page keeps returning to the first step.</p><ul><li>Allow cookies for this address — private browsing discards them.</li><li>Open the address directly in the browser instead of an in-app viewer.</li></ul><p><a href="/?retry=1">Try again</a></p></body></html>`
+}
+
+/** Answer a token-handshake 3xx with a 200 + the upstream cookie + meta refresh. */
+function serveTokenHandshake(upstreamRes: IncomingMessage, res: ServerResponse): void {
+  const rawCookies = upstreamRes.headers['set-cookie']
+  const cookies = rawCookies === undefined ? [] : Array.isArray(rawCookies) ? rawCookies : [rawCookies]
+  upstreamRes.resume()
+  const location = typeof upstreamRes.headers.location === 'string' ? upstreamRes.headers.location : '/'
+  const body = tokenHandshakePage(location)
+  const headers: Record<string, string | string[]> = {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-length': String(Buffer.byteLength(body)),
+  }
+  if (cookies.length > 0) headers['set-cookie'] = cookies
+  res.writeHead(200, headers)
+  res.end(body)
+}
+
+/** Answer the handshake cap with guidance instead of another token round trip. */
+function serveHandshakeGuidance(res: ServerResponse): void {
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+  res.end(handshakeGuidancePage())
 }
 
 /** Nearest ancestor directory containing a package.json — the plugin package root from src/ (vitest) or lib/ (built). */
@@ -326,6 +661,7 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
   const { port, host, upstream, auth } = options
   const loginAssetsDir = options.loginAssetsDir ?? DEFAULT_LOGIN_ASSETS_DIR
   const loginRateLimit = options.loginRateLimit ?? DEFAULT_LOGIN_RATE_LIMIT
+  const trustLoopback = options.trustLoopback === true
   const sockets = new Set<Socket>()
   const server = createServer((req, res) => {
     const start = Date.now()
@@ -346,6 +682,10 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
   })
 
   const loginFailures = new Map<string, number[]>()
+
+  const handshakeGuard = createHandshakeGuard(options.handshake ?? {})
+  const peerIsLoopback = options.peerIsLoopback ?? isLoopbackAddress
+  const wsHeartbeatOptions = options.wsHeartbeat ?? {}
 
   /** Retry-after seconds while the source address is throttled, or 0 when free to try. */
   function loginThrottled(key: string): number {
@@ -390,10 +730,13 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
   }
 
   async function authorized(req: IncomingMessage): Promise<boolean> {
+    // The owner's own machine on a listener that opted into local trust.
+    if (loopbackTrusted(trustLoopback, req.socket.remoteAddress)) return true
     const facts = { headers: req.headers as { cookie?: string }, url: req.url ?? '/' }
-    if (auth.isPublic(req.headers.host)) return isPinAuthorized(facts, await auth.getPin())
+    const isPublic = auth.isPublic(req.headers.host)
+    if (isPublic) return isPinAuthorized(facts, await auth.getPin(), PIN_COOKIE)
     if (auth.getLanPin === undefined) return true
-    return isPinAuthorized(facts, await auth.getLanPin())
+    return isPinAuthorized(facts, await auth.getLanPin(), LAN_PIN_COOKIE)
   }
 
   function collectBody(req: IncomingMessage, limit = 1024): Promise<string> {
@@ -418,7 +761,9 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
   }
 
   async function handleLogin(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const remoteAddress = req.socket.remoteAddress ?? 'unknown'
+    // Throttle the real client, not our tunnel process: after cloudflared every
+    // public request shares the loopback peer address.
+    const remoteAddress = clientIdentity(req.socket.remoteAddress, req.headers as ForwardedAddressHeaders)
     const retryAfterSeconds = loginThrottled(remoteAddress)
     if (retryAfterSeconds > 0) {
       res.writeHead(429, { 'retry-after': String(retryAfterSeconds), 'content-type': 'text/plain; charset=utf-8' })
@@ -427,13 +772,37 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
     }
     const params = new URLSearchParams(await collectBody(req))
     const submitted = params.get('pin') ?? params.get('token') ?? ''
-    const pin = await auth.getPin()
-    if (secretsMatch(submitted, pin)) {
+    // Login must pick the PIN with the SAME predicate the gate uses, or the two
+    // can disagree — the defect this handler used to have (a non-public host was
+    // gated on the LAN PIN while login only ever accepted the public one, so no
+    // cookie could satisfy the gate).
+    if (loopbackTrusted(trustLoopback, req.socket.remoteAddress)) {
+      // Nothing to authenticate on a locally trusted listener.
+      res.writeHead(302, { location: '/', 'cache-control': 'no-store' })
+      res.end()
+      return
+    }
+    const isPublic = auth.isPublic(req.headers.host)
+    const governingPin = isPublic
+      ? await auth.getPin()
+      : auth.getLanPin === undefined ? undefined : await auth.getLanPin()
+    if (governingPin === undefined) {
+      // Non-public host with the LAN gate off: nothing to authenticate.
+      clearLoginFailures(remoteAddress)
+      res.writeHead(302, { location: '/', 'cache-control': 'no-store' })
+      res.end()
+      return
+    }
+    if (secretsMatch(submitted, governingPin)) {
       clearLoginFailures(remoteAddress)
       const ttlHours = auth.getPinSessionTtlHours === undefined
         ? DEFAULT_PIN_SESSION_TTL_HOURS
         : resolvePinSessionTtlHours(await auth.getPinSessionTtlHours())
-      res.writeHead(302, { location: '/', 'set-cookie': pinSessionCookie(pin, ttlHours), 'cache-control': 'no-store' })
+      res.writeHead(302, {
+        location: '/',
+        'set-cookie': pinSessionCookie(pinCookieName(isPublic), governingPin, ttlHours),
+        'cache-control': 'no-store',
+      })
       res.end()
       return
     }
@@ -556,13 +925,22 @@ async function compressIfEligible(
   return { compressed: true, buffered: [] }
 }
 
-  /** Route one upstream response: HTML polyfill injection, compression, or raw pass-through. */
+  /** Route one upstream response: token handshake, HTML injection, compression, or pass-through. */
   async function handleUpstreamResponse(
     req: IncomingMessage,
     upstreamRes: IncomingMessage,
     res: ServerResponse,
     isRetry = false,
+    tokenHandshake = false,
   ): Promise<void> {
+    // A 3xx carrying the minted cookie is the handshake's own redirect. Relaying
+    // it lets Safari (which drops Set-Cookie on a 3xx from a bare http origin)
+    // loop forever, so answer with a 200 that carries the cookie and performs
+    // the same navigation via meta refresh (spec D7).
+    if (tokenHandshake && isTokenHandshakeRedirect(upstreamRes.statusCode, upstreamRes.headers['set-cookie'])) {
+      serveTokenHandshake(upstreamRes, res)
+      return
+    }
     if (upstreamRes.statusCode === 401) {
       const parsed = new URL(req.url ?? '/', 'http://proxy')
       const isIndex = parsed.pathname === '/' || parsed.pathname === '/index.html'
@@ -583,7 +961,7 @@ async function compressIfEligible(
           const retryUrl = `/?token=${encodeURIComponent(token)}`
           const retryReq = httpRequest(
             { host: upstream.host, port: upstream.port, method: req.method, path: retryUrl, headers },
-            (retryRes) => { void handleUpstreamResponse(req, retryRes, res, true) },
+            (retryRes) => { void handleUpstreamResponse(req, retryRes, res, true, true) },
           )
           retryReq.on('error', () => {
             if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
@@ -658,27 +1036,55 @@ async function compressIfEligible(
     return cookie.includes('dsh-auth-')
   }
 
-  async function maybeInjectDshToken(req: IncomingMessage): Promise<string> {
-    const rawUrl = req.url ?? '/'
-    if (options.getDshToken === undefined) return rawUrl
-    if (hasDshAuthCookie(req)) return rawUrl
+  interface TokenInjection { url: string; injected: boolean; guidance: boolean }
+
+  /**
+   * Decide whether this request needs the launch-token exchange. `injected`
+   * marks a token handshake (its upstream 3xx becomes a 200 page, spec D7);
+   * `guidance` means the identity already used up its handshakes.
+   */
+  async function maybeInjectDshToken(req: IncomingMessage): Promise<TokenInjection> {
+    const rawUrl = stripDesktopQueryParams(req.url ?? '/')
+    if (options.getDshToken === undefined) return { url: rawUrl, injected: false, guidance: false }
+    if (hasDshAuthCookie(req)) return { url: rawUrl, injected: false, guidance: false }
     // Only for index HTML where BrowserAuth expects ?token= — API already
     // gated by cookie; other assets are public.
     const parsed = new URL(rawUrl, 'http://proxy')
-    if (parsed.pathname !== '/' && parsed.pathname !== '/index.html') return rawUrl
-    if (parsed.searchParams.has('token')) return rawUrl
+    if (parsed.pathname !== '/' && parsed.pathname !== '/index.html') return { url: rawUrl, injected: false, guidance: false }
+    const identity = clientIdentity(req.socket.remoteAddress, req.headers as ForwardedAddressHeaders)
+    if (parsed.searchParams.has('retry')) {
+      handshakeGuard.reset(identity)
+      parsed.searchParams.delete('retry')
+    }
+    const cleanUrl = parsed.pathname + parsed.search + parsed.hash
+    // A token the client brought itself is still a handshake: its 3xx has the
+    // same Safari problem.
+    if (parsed.searchParams.has('token')) return { url: cleanUrl, injected: true, guidance: false }
+    // Count a handshake only for a remote client that is not already holding a
+    // session. Counting our own traffic starves real browsers: the supervisor's
+    // health probe is cookie-less, runs every 3s and shares the loopback
+    // identity, so it alone spends a 3-per-minute budget in nine seconds and the
+    // browser then gets the guidance page instead of the app. The Safari loop
+    // this guard defends against only ever hits a *remote* client whose 3xx
+    // cookie was dropped.
+    const countsAsHandshake = !peerIsLoopback(req.socket.remoteAddress) && !hasDshAuthCookie(req)
+    if (countsAsHandshake && !handshakeGuard.check(identity)) return { url: cleanUrl, injected: false, guidance: true }
     const token = await options.getDshToken()
-    if (!token) return rawUrl
+    if (!token) return { url: cleanUrl, injected: false, guidance: false }
     parsed.searchParams.set('token', token)
-    return parsed.pathname + parsed.search + parsed.hash
+    return { url: parsed.pathname + parsed.search + parsed.hash, injected: true, guidance: false }
   }
 
   function proxyRequest(req: IncomingMessage, res: ServerResponse): void {
     void (async () => {
       const headers: Record<string, string | string[] | undefined> = { ...req.headers }
       loopbackAuthority(headers, upstream)
-      const url = await maybeInjectDshToken(req)
-      const upstreamReq = httpRequest({ host: upstream.host, port: upstream.port, method: req.method, path: url, headers }, (upstreamRes) => { void handleUpstreamResponse(req, upstreamRes, res) })
+      const injection = await maybeInjectDshToken(req)
+      if (injection.guidance) {
+        serveHandshakeGuidance(res)
+        return
+      }
+      const upstreamReq = httpRequest({ host: upstream.host, port: upstream.port, method: req.method, path: injection.url, headers }, (upstreamRes) => { void handleUpstreamResponse(req, upstreamRes, res, false, injection.injected) })
       upstreamReq.on('error', () => {
         if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
         res.end('remote-proxy: cannot reach dsh web — start dsh web first')
@@ -802,7 +1208,7 @@ async function compressIfEligible(
     }
     const headers: Record<string, string | string[] | undefined> = { ...req.headers }
     loopbackAuthority(headers, upstream)
-    const upstreamReq = httpRequest({ host: upstream.host, port: upstream.port, method: req.method, path: req.url, headers, agent: false })
+    const upstreamReq = httpRequest({ host: upstream.host, port: upstream.port, method: req.method, path: stripDesktopQueryParams(req.url ?? '/'), headers, agent: false })
     upstreamReq.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
       void logAccess({ kind: 'ws', url, status: 101, durationMs: Date.now() - start })
       const lines = ['HTTP/1.1 101 Switching Protocols']
@@ -813,9 +1219,29 @@ async function compressIfEligible(
       // The client's first frame may already sit in `head`; it must reach the
       // upstream inside the upgrade window or the mux protocol misses it.
       if (upstreamHead?.length > 0) socket.write(upstreamHead)
+      let heartbeat: WsHeartbeat | undefined
+      const teardown = (): void => {
+        heartbeat?.dispose()
+        heartbeat = undefined
+        resetAndDestroyUpstream(upstreamSocket)
+        socket.destroy()
+      }
+      // Liveness is counted from inbound data on the client socket (no ping/pong
+      // API exists at this layer): a sleeping phone stops sending, two silent
+      // intervals destroy the pair, and the browser reconnects.
+      heartbeat = createWsHeartbeat({
+        onDead: () => {
+          void logAccess({ kind: 'ws', url, status: 101, durationMs: Date.now() - start, reason: 'heartbeat-timeout' })
+          teardown()
+        },
+        onIdle: () => {
+          try { socket.write(WS_PING_FRAME) } catch { /* closing socket */ }
+        },
+        ...wsHeartbeatOptions,
+      })
+      socket.on('data', () => { heartbeat?.noteActivity() })
       upstreamSocket.pipe(socket)
       socket.pipe(upstreamSocket)
-      const teardown = (): void => { upstreamSocket.destroy(); socket.destroy() }
       upstreamSocket.on('close', teardown)
       socket.on('close', teardown)
       upstreamSocket.on('error', teardown)

@@ -43,9 +43,11 @@ describe('local/LAN gate mechanics', () => {
         redirect: 'manual',
       })
       expect(login.status).toBe(302)
-      expect(login.headers.get('set-cookie')).toContain('maestro_pin=12345678')
+      // A LAN-class host is governed by the LAN PIN, carried by its own cookie
+      // name so a public session in the same browser stays independent.
+      expect(login.headers.get('set-cookie')).toContain('maestro_lan_pin=12345678')
 
-      const after = await get(proxy.port, '/', { host: 'lan.example.com', cookie: 'maestro_pin=12345678' })
+      const after = await get(proxy.port, '/', { host: 'lan.example.com', cookie: 'maestro_lan_pin=12345678' })
       expect(after.status).toBe(200)
       expect(after.body).toBe('ok') // proxied upstream, not the login page
       expect(upstream.seen.some((s) => s.includes('host=127.0.0.1:'))).toBe(true) // loopbackAuthority
