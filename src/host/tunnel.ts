@@ -494,6 +494,10 @@ export function apply(ctx: Context): void {
           },
           getDshToken: readDshToken,
           gateExemptPathPrefixes: ['/dsh-maestro-supervisor-resume'],
+          // This listener is the local/LAN entry: a browser on this machine is
+          // the owner and must not need the LAN PIN. Other devices still do.
+          // Never set this on the public listener (cloudflared is loopback too).
+          trustLoopback: true,
         })
         lanProxy = lanHandle
         lanPort = lanHandle.port

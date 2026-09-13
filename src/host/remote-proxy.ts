@@ -339,6 +339,11 @@ export interface RemoteProxyOptions {
    */
   loginRateLimit?: LoginRateLimit
   /**
+   * Skip the PIN gate for requests whose TCP peer is loopback. Set this ONLY on
+   * the LAN/local listener — see `loopbackTrusted`. Off by default.
+   */
+  trustLoopback?: boolean
+  /**
    * PIN-only UX: after a valid maestro_pin, the proxy mints the DSH
    * BrowserAuth cookie on the user's behalf so the Web UI never shows
    * the ?token= exchange. The upstream token is read via
@@ -411,6 +416,18 @@ export function clientIdentity(
     ?? firstHeaderValue(headers['x-forwarded-for'])
     ?? peer
     ?? 'unknown'
+}
+
+/**
+ * Whether a request may skip the PIN because it comes from this machine.
+ *
+ * Only a listener whose traffic is *local by nature* may opt in — in practice
+ * the LAN/local listener. It must NEVER be set on the public ingress: cloudflared
+ * runs on this host, so every tunnelled request also arrives from loopback and
+ * the flag would remove the public PIN entirely.
+ */
+export function loopbackTrusted(trustLoopback: boolean, peer: string | undefined): boolean {
+  return trustLoopback && isLoopbackAddress(peer)
 }
 
 /**
@@ -639,6 +656,7 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
   const { port, host, upstream, auth } = options
   const loginAssetsDir = options.loginAssetsDir ?? DEFAULT_LOGIN_ASSETS_DIR
   const loginRateLimit = options.loginRateLimit ?? DEFAULT_LOGIN_RATE_LIMIT
+  const trustLoopback = options.trustLoopback === true
   const sockets = new Set<Socket>()
   const server = createServer((req, res) => {
     const start = Date.now()
@@ -706,6 +724,8 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
   }
 
   async function authorized(req: IncomingMessage): Promise<boolean> {
+    // The owner's own machine on a listener that opted into local trust.
+    if (loopbackTrusted(trustLoopback, req.socket.remoteAddress)) return true
     const facts = { headers: req.headers as { cookie?: string }, url: req.url ?? '/' }
     const isPublic = auth.isPublic(req.headers.host)
     if (isPublic) return isPinAuthorized(facts, await auth.getPin(), PIN_COOKIE)
@@ -750,6 +770,12 @@ export function createRemoteProxy(options: RemoteProxyOptions): Promise<RemotePr
     // can disagree — the defect this handler used to have (a non-public host was
     // gated on the LAN PIN while login only ever accepted the public one, so no
     // cookie could satisfy the gate).
+    if (loopbackTrusted(trustLoopback, req.socket.remoteAddress)) {
+      // Nothing to authenticate on a locally trusted listener.
+      res.writeHead(302, { location: '/', 'cache-control': 'no-store' })
+      res.end()
+      return
+    }
     const isPublic = auth.isPublic(req.headers.host)
     const governingPin = isPublic
       ? await auth.getPin()

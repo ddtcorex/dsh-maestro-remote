@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createServer, request as httpRequest, type Server } from 'node:http'
-import { createRemoteProxy, clientIdentity, isLoopbackAddress, policyHost } from '../src/host/remote-proxy.ts'
+import { createRemoteProxy, clientIdentity, isLoopbackAddress, loopbackTrusted, policyHost } from '../src/host/remote-proxy.ts'
 
 describe('clientIdentity (login throttle key)', () => {
   it('trusts a forwarded client IP only from a loopback peer', () => {
@@ -32,6 +32,17 @@ describe('clientIdentity (login throttle key)', () => {
     expect(isLoopbackAddress('::ffff:127.0.0.1')).toBe(true)
     expect(isLoopbackAddress('192.0.2.10')).toBe(false)
     expect(isLoopbackAddress(undefined)).toBe(false)
+  })
+})
+
+describe('loopbackTrusted', () => {
+  it('trusts the local machine only when the listener opted in', () => {
+    expect(loopbackTrusted(true, '127.0.0.1')).toBe(true)
+    expect(loopbackTrusted(true, '::1')).toBe(true)
+    expect(loopbackTrusted(true, '192.0.2.10')).toBe(false)
+    // The public ingress reaches the proxy from cloudflared on loopback, so the
+    // flag must stay off there.
+    expect(loopbackTrusted(false, '127.0.0.1')).toBe(false)
   })
 })
 

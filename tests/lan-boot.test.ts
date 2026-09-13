@@ -102,7 +102,7 @@ describe('maestroTunnel LAN proxy listener', () => {
     }
   })
 
-  it('boots a second PIN-gated listener when lanPort is set; LAN login then passes through', async () => {
+  it('boots the LAN listener and lets this machine through without the LAN PIN', async () => {
     const { ctx, tunnel, teardown } = await boot({ lanPort: 0, lanPinEnabled: true })
     try {
       const status = tunnel.proxyStatus()
@@ -110,26 +110,14 @@ describe('maestroTunnel LAN proxy listener', () => {
       expect(typeof status.lanPort).toBe('number')
       const lanPort = status.lanPort as number
 
+      // The listener trusts its own machine: a browser here is the owner, so it
+      // is not asked for the LAN PIN — it reaches the (unreachable) upstream
+      // straight away rather than being served the login page. A device on the
+      // network still gets the gate: see tests/lan-pin-gate.test.ts, which
+      // exercises the pinned path through a listener without local trust.
       const page = await fetch(`http://127.0.0.1:${lanPort}/`, { headers: { host: 'lan.example.com', accept: 'text/html' } })
-      expect(page.status).toBe(200)
-      expect(await page.text()).toContain('maestro-login-card')
-
-      // Every host on the LAN listener is LAN-class, so its gate is the LAN PIN.
-      const pin = await tunnel.getLanPin()
-      const login = await fetch(`http://127.0.0.1:${lanPort}/maestro-login`, {
-        method: 'POST',
-        headers: { host: 'lan.example.com', 'content-type': 'application/x-www-form-urlencoded' },
-        body: `pin=${pin}`,
-        redirect: 'manual',
-      })
-      expect(login.status).toBe(302)
-      const cookie = login.headers.get('set-cookie') ?? ''
-      expect(cookie).toContain('maestro_lan_pin=')
-
-      // Gate passed -> the request reaches the (unreachable) upstream: 502, not the login page.
-      const after = await fetch(`http://127.0.0.1:${lanPort}/`, { headers: { host: 'lan.example.com', cookie } })
-      expect(after.status).toBe(502)
-      expect(await after.text()).toContain('cannot reach dsh web')
+      expect(page.status).toBe(502)
+      expect(await page.text()).toContain('cannot reach dsh web')
 
       // Loopback RPC is exempt from the PIN gate on the local listener.
       const rpc = await fetch(`http://127.0.0.1:${lanPort}/dsh-maestro-supervisor-resume/resume`, {

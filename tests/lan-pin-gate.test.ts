@@ -16,7 +16,7 @@ const TUNNEL_HOST = 'dsh.example.com'
 const LAN_HOST = '192.168.1.10:3080'
 
 async function withProxy(
-  opts: { lanPin?: string | undefined },
+  opts: { lanPin?: string | undefined; trustLoopback?: boolean },
   body: (port: number) => Promise<void>,
 ): Promise<void> {
   const upstream = await upstreamServer()
@@ -24,6 +24,7 @@ async function withProxy(
     port: 0,
     host: '127.0.0.1',
     upstream: { host: '127.0.0.1', port: upstream.port },
+    ...(opts.trustLoopback === undefined ? {} : { trustLoopback: opts.trustLoopback }),
     auth: {
       isPublic: (host) => host === TUNNEL_HOST,
       getPin: async () => PUBLIC_PIN,
@@ -120,6 +121,24 @@ describe('LAN PIN gate (two PINs, one per host class)', () => {
       const both = `${PIN_COOKIE}=${PUBLIC_PIN}; ${LAN_PIN_COOKIE}=${LAN_PIN}`
       expect((await get(port, TUNNEL_HOST, both)).body).toBe('ok')
       expect((await get(port, LAN_HOST, both)).body).toBe('ok')
+    })
+  })
+
+  it('skips the gate for the local machine on a listener that trusts loopback', async () => {
+    // The LAN listener is the owner's own entry; a browser on this machine must
+    // not have to know the LAN PIN. The public ingress must NEVER set this flag:
+    // cloudflared runs here, so every tunnelled request is loopback too.
+    await withProxy({ lanPin: LAN_PIN, trustLoopback: true }, async (port) => {
+      const local = await get(port, LAN_HOST)
+      expect(local.status).toBe(200)
+      expect(local.body).toBe('ok')
+    })
+  })
+
+  it('keeps gating loopback on a listener that does not trust it (the public ingress)', async () => {
+    await withProxy({ lanPin: LAN_PIN }, async (port) => {
+      const local = await get(port, LAN_HOST)
+      expect(local.body).toContain('maestro-login-card')
     })
   })
 
