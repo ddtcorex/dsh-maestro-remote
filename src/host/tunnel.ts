@@ -337,7 +337,16 @@ export function apply(ctx: Context): void {
    * as long as the persisted intent (`lastTunnelRunning`) is still set; an
    * explicit stop clears that intent and cancels every pending retry.
    */
-  const watchdog = createTunnelWatchdog({ onRetry: () => { void retryStart() } })
+  const watchdog = createTunnelWatchdog({
+    onRetry: () => {
+      // The watchdog fires on its own timer: a rejection here must not reach
+      // the host's unhandled-rejection path (fatal), and the next retry still
+      // fires either way.
+      void retryStart().catch((err) => {
+        ctx.logger?.warn?.(`maestro-tunnel: retry start failed — ${err instanceof Error ? err.message : String(err)}`)
+      })
+    },
+  })
 
   /**
    * The only writer of the boot-restore intent. Serialized so a start() and a
@@ -616,7 +625,7 @@ export function apply(ctx: Context): void {
       // A settled attempt must not pin `starting`: retries and later manual
       // starts need a fresh attempt instead of reusing the stale promise.
       if (starting === attempt) starting = undefined
-    })
+    }).catch(() => { /* the caller observes `attempt`; this second chain must not reject unhandled */ })
     return starting
   }
 
