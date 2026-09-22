@@ -1194,7 +1194,20 @@ async function compressIfEligible(
     socket.on('error', () => {})
   })
 
-  server.on('upgrade', (req, socket, head) => { void handleUpgrade(req, socket as Socket, head) })
+  server.on('upgrade', (req, socket, head) => {
+    // The handler runs detached from the server callback: a rejection would
+    // reach the host's unhandled-rejection path (fatal), so record it in the
+    // access log and close the socket instead.
+    void handleUpgrade(req, socket as Socket, head).catch((err) => {
+      void logAccess({
+        kind: 'ws',
+        url: req.url ?? '/',
+        status: 'error',
+        reason: err instanceof Error ? err.message : String(err),
+      })
+      try { socket.destroy() } catch { /* already closed */ }
+    })
+  })
 
   async function handleUpgrade(req: IncomingMessage, socket: Socket, head: Buffer): Promise<void> {
     const start = Date.now()
