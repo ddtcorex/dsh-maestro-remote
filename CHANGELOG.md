@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0] - 2026-09-22
+
+### Fixed
+
+- **Require the config-lib that owns the shared store** — the declared range
+  could not reach the release that moved the settings doc, so a registry
+  install read the retired path (#54).
+
+### Changed
+
+- Follow `@ddtcorex/dsh-maestro-config-lib` to `^0.3.0` (#54) and the DSH
+  `0.1.7-alpha.1` peer pins (#56).
+- Declare package license, repository and Node engine range in the manifest
+  (#53); correct the `lib/` build-output claim in the docs (#52).
+
 ## [0.3.0] - 2026-09-13
 
 ### Added
