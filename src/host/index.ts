@@ -13,8 +13,6 @@ export default {
           if (endpoint === 'status') return { ok: true };
           return { error: `unknown endpoint: ${String(endpoint)}` };
         },
-        // Required at runtime (rpc-host reads options.authority unconditionally).
-        { authority: 'loopback' },
       )
     );
   },
