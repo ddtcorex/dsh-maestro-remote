@@ -29,8 +29,6 @@ tunnel state.
 
 ```sh
 dsh plugin --profile web add @ddtcorex/dsh-maestro-remote
-# or everything at once:
-dsh plugin --profile web add @ddtcorex/dsh-maestro-meta
 ```
 
 ## Development
