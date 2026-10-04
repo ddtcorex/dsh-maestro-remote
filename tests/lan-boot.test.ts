@@ -3,7 +3,7 @@ import { request as httpRequest } from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { writeLegacyPatch } from '@ddtcorex/dsh-maestro-config-lib'
+import { writeLegacyPatch } from '../src/host/vendor/store.js'
 import { apply } from '../src/host/tunnel.ts'
 
 let home: string
