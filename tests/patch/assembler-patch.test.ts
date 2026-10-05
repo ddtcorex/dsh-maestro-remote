@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyAssemblerRestore } from '../src/host/patches/assembler.js'
+import { applyAssemblerRestore } from '../../src/host/patch/patches/assembler.js'
 
 /**
  * Minimal stand-in that reproduces the real `BlockAssembler` (dsh-llm) surface

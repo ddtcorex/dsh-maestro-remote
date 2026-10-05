@@ -29,6 +29,14 @@ function patchPrototype(WelcomeNoticeStore: { prototype: Record<string, unknown>
   })
 }
 
+/**
+ * The browser loader hands the bundle a `require`, so this resolves from the
+ * host module table at runtime. Declared here rather than by adding node types
+ * to the client project: node globals in a browser bundle are a trap, and this
+ * one call is the only thing that needs them.
+ */
+declare const require: (id: string) => unknown
+
 export function installWelcomePatch(): void {
   // Try synchronous require (Node / vitest)
   try {

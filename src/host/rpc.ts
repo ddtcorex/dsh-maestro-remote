@@ -156,6 +156,10 @@ export function createRpcHandler(deps: RpcDeps): (endpoint: string, payload: unk
           return ok({ pin: await tunnel.rotateLanPin() })
         case 'maestro.saveConfig':
           return await saveTunnelConfig(payload)
+        case 'maestro.getConfig':
+          // The tunnel domain, and nothing else. Another plugin's keys are not
+          // readable through this channel even though they share the file.
+          return ok((await load()).domains.tunnel ?? {})
         default:
           return fail(`unknown endpoint: ${String(endpoint)}`)
       }

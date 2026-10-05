@@ -17,7 +17,11 @@
   "exports": {
     ".": "./lib/index.js",
     "./package.json": "./package.json",
-    "./lib/*": "./lib/*"
+    "./lib/*": "./lib/*",
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    }
   },
   "files": [
     "lib",
@@ -27,10 +31,10 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json && node scripts/build-client.mjs",
     "build:client": "node client/build.mjs",
     "prepublishOnly": "pnpm run build && pnpm run build:client",
-    "verify": "tsc --noEmit",
+    "verify": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "vitest run"
   },
   "peerDependencies": {
@@ -48,12 +52,21 @@
     "clsx": "^2.1.1",
     "esbuild": "^0.25.12",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.0"
   },
   "packageManager": "pnpm@11.7.0",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
     }
   }
 }

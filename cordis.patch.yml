@@ -14,3 +14,11 @@
       inject: ['webServer', 'connection']
     - id: dsh-maestro-tunnel
       name: '@ddtcorex/dsh-maestro-remote/lib/tunnel.js'
+
+    # The zero-fork patch shim, absorbed from dsh-maestro-patch. It stays its
+    # own row on purpose: the patches must work with the tunnel off, which a
+    # row merged into the tunnel provider could not guarantee.
+    - id: maestro-patch
+      name: '@ddtcorex/dsh-maestro-remote/lib/patch/index.js'
+      inject: ['connection']
+
