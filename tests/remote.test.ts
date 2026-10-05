@@ -120,14 +120,19 @@ describe('dsh-maestro-remote', () => {
 describe('cordis.patch.yml row wiring', () => {
   it('loads the rpc entry, the tunnel provider and the patch shim', () => {
     const yml = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../cordis.patch.yml'), 'utf8');
-    expect(yml).toContain("name: '@ddtcorex/dsh-maestro-remote/lib/index.js'");
+    // The rpc row is addressed by the bare package name, not the lib/index.js
+    // subpath it resolves to. The client module scan resolves each row name to a
+    // package root, and a package whose rows are all subpaths has none, so it is
+    // skipped as "not a client row": lib/client.js is never served and the
+    // settings section vanishes with no boot error naming a cause.
+    expect(yml).toContain("name: '@ddtcorex/dsh-maestro-remote'");
     expect(yml).toContain("name: '@ddtcorex/dsh-maestro-remote/lib/tunnel.js'");
     // The absorbed patch shim keeps its own row so the patches still work with
     // the tunnel off, which a row folded into the tunnel provider could not
     // guarantee.
     expect(yml).toContain("name: '@ddtcorex/dsh-maestro-remote/lib/patch/index.js'");
     expect(yml).toContain('id: maestro-patch');
-    // Rows import deep subpaths, so the exports map must expose ./lib/*.
+    // The remaining rows import deep subpaths, so the exports map must expose ./lib/*.
     const pkg2 = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8'));
     expect(pkg2.exports['./lib/*']).toBe('./lib/*');
   });
