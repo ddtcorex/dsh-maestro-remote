@@ -1,6 +1,20 @@
 # Changelog
 
-## Unreleased
+## [0.5.0] - 2026-10-05
+
+### Security
+
+- **The `tunnel` domain is validated on every write.** The store accepts a write
+  to an unregistered domain as-is, and this package registered no validator, so
+  the only checks that ran were inside one RPC handler's `saveTunnelConfig`. The
+  other writers reached the same domain unchecked — `maestro.lanPin.setEnabled`
+  writes it directly (correctly, since `lanPinEnabled` is deliberately not in
+  the Settings card's SAVABLE set, and therefore also unvalidated), and the
+  tunnel-profile applier rewrites the whole domain after every harness sync.
+  Both feed the proxy, the cloudflared controller and the PIN gate at boot.
+  Registered from both rows that write it, so the first write from either is
+  already checked.
+
 
 ### Changed
 
