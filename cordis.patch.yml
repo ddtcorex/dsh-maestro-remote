@@ -1,11 +1,21 @@
-# dsh-maestro-remote bundle patch — two rows:
-#   maestro-remote-rpc     loopback RPC stub (status endpoint)
-#   maestro-tunnel         the real provider: cloudflared tunnel + LAN proxy
-#                          + PIN auth + startup notification (provides
-#                          service 'maestroTunnel' consumed by review)
+# dsh-maestro-remote bundle patch — three rows:
+#   dsh-maestro-remote-rpc  loopback RPC stub (status endpoint)
+#   dsh-maestro-tunnel      the real provider: cloudflared tunnel + LAN proxy
+#                           + PIN auth + startup notification (provides
+#                           service 'maestroTunnel' consumed by review)
+#   maestro-patch           the zero-fork patch shim, absorbed from
+#                           dsh-maestro-patch: viewport, apple-touch-icon,
+#                           connection loopback, welcome
 - insert:
+    # The RPC row is addressed by the BARE package name, not by
+    # '@ddtcorex/dsh-maestro-remote/lib/index.js'. Both resolve to the same file,
+    # but only the bare name gives the client module scan a package root to
+    # resolve. A package whose every row is a subpath is permanently skipped as
+    # "not a client row": its dsh.client declaration is never read, lib/client.js
+    # is never served, and the settings section disappears with no boot error
+    # naming a cause.
     - id: dsh-maestro-remote-rpc
-      name: '@ddtcorex/dsh-maestro-remote/lib/index.js'
+      name: '@ddtcorex/dsh-maestro-remote'
       channel: /dsh-maestro-remote
       # Row-level inject: rpc.handle registers a webServer route inside an
       # effect fiber, which carries only the row's inject (not the module's).
