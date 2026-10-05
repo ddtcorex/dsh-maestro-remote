@@ -90,3 +90,15 @@ export function scheduleStartupNotification(dependencies: StartupNotifyDependenc
     dependencies.logger?.warn?.('maestro-telegram: startup notification failed')
   })
 }
+
+/**
+ * Telegram copy for a public PIN rotation.
+ *
+ * Message text belongs with the plugin that sends it, not with the transport:
+ * dsh-maestro-notifier's own rule is "transport only, never move domain copy
+ * into this package". This text used to live in dsh-maestro-review because
+ * review hosted the rotatePin endpoint; the endpoint now lives here.
+ */
+export function pinRotationText(pin: string): string {
+  return `DSH public access PIN was rotated\nNew PIN: ${pin}`
+}
