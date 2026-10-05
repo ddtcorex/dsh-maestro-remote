@@ -10,6 +10,12 @@ import { resolveCloudflared } from './cloudflared-fetch.js'
 import { scheduleStartupNotification } from './startup-notify.js'
 import { createTunnelWatchdog } from './tunnel-watchdog.js'
 import { createSerializedWriter } from './serialized-writes.js'
+// Side-effect import: registers the `tunnel` domain validator with the embedded
+// store. This row is the one that WRITES that domain (start, stop, the
+// quick-tunnel switch, the LAN PIN gate), so the registration belongs here as
+// well as in index.ts — whichever row Cordis loads first, the first write from
+// either is already checked.
+import './tunnel-validator.js'
 
 const QUICK_TUNNEL_URL_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i
 
