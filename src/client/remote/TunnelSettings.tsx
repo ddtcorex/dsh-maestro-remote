@@ -8,6 +8,7 @@
  */
 import * as React from 'react'
 import type { RpcCall } from '../index.js'
+import { BrandBadge } from '../BrandMark.js'
 
 const PIN_TTL_PRESETS: ReadonlyArray<{ hours: number; label: string }> = [
   { hours: 0, label: 'Session only' },
@@ -20,13 +21,23 @@ const PIN_TTL_PRESETS: ReadonlyArray<{ hours: number; label: string }> = [
 
 const MAX_PIN_TTL_HOURS = 8760
 
-function Field(props: { label: string; hint?: string; children?: React.ReactNode }) {
+/**
+ * One setting, in the house pattern's two-column row: label and hint left,
+ * control held right. `htmlFor`/`id` are what give the control its accessible
+ * name — the previous markup rendered a bare `<label>` beside an input with no
+ * `id`, so nothing was associated.
+ */
+function Field(props: { id: string; label: string; hint?: React.ReactNode; children?: React.ReactNode }) {
   return React.createElement(
     'div',
-    { 'data-remote-field': '' },
-    React.createElement('label', { 'data-remote-label': '' }, props.label),
-    props.children,
-    props.hint ? React.createElement('p', { 'data-remote-hint': '' }, props.hint) : null,
+    { 'data-remote-row': '' },
+    React.createElement(
+      'div',
+      { 'data-remote-row-text': '' },
+      React.createElement('label', { 'data-remote-label': '', htmlFor: props.id }, props.label),
+      props.hint ? React.createElement('p', { 'data-remote-hint': '' }, props.hint) : null,
+    ),
+    React.createElement('div', { 'data-remote-control': '' }, props.children),
   )
 }
 
@@ -57,7 +68,11 @@ export function TunnelSettings(props: { rpcCall: RpcCall }) {
       setLan(l)
       const cfg = await rpcCall('maestro.getConfig').catch(() => null)
       if (cfg) {
-        if (typeof cfg.tunnelHostname === 'string') setHostname(cfg.tunnelHostname)
+        // `maestro.getConfig` answers the raw NESTED `domains.tunnel`, whose
+        // hostname key is `hostname`. `tunnelHostname` is the FLAT alias the
+        // store's key map translates onto `tunnel.hostname`; reading it here
+        // always missed, and writing it created a key nothing read back.
+        if (typeof cfg.hostname === 'string') setHostname(cfg.hostname)
         if (typeof cfg.pinSessionTtlHours === 'number') setTtl(cfg.pinSessionTtlHours)
       }
     } catch (e) {
@@ -102,16 +117,38 @@ export function TunnelSettings(props: { rpcCall: RpcCall }) {
     [rpcCall, fail],
   )
 
-  const running = status?.status === 'running' || status?.tunnelRunning === true
+  // `TunnelStatus` is { running, mode, publicUrl, phase }. The section read
+  // `status` and `tunnelRunning` — neither of which the host emits — so a live
+  // tunnel rendered as stopped with a Start button.
+  const running = status?.running === true
+  const phase: string | undefined = typeof status?.phase === 'string' ? status.phase : undefined
 
   return React.createElement(
     'div',
     { 'data-remote-root': '' },
-    React.createElement('h2', { 'data-remote-title': '' }, 'Tunnel and LAN access'),
-
-    notice ? (
-      React.createElement('p', { 'data-remote-notice': '', 'data-tone': notice.tone, role: 'status' }, notice.text)
-    ) : null,
+    // House header: badge, title, one-line status. The notice lives here so it
+    // reports without pushing the rows down.
+    React.createElement(
+      'div',
+      { 'data-remote-header': '' },
+      React.createElement(BrandBadge as any, { style: { alignSelf: 'flex-start', marginTop: 2 } }),
+      React.createElement(
+        'div',
+        { 'data-remote-heading': '' },
+        React.createElement('h2', { 'data-remote-title': '' }, 'Tunnel and LAN access'),
+        React.createElement(
+          'div',
+          { 'data-remote-status': '' },
+          notice
+            ? React.createElement('p', { 'data-remote-notice': '', 'data-tone': notice.tone, role: 'status' }, notice.text)
+            : React.createElement('span', null,
+                running
+                  ? (phase === 'ready' ? 'Tunnel running.' : `Tunnel ${phase ?? 'starting'}…`)
+                  : (phase === 'error' ? `Tunnel error: ${status?.errorMessage ?? 'unknown'}` : 'Tunnel stopped.'),
+              ),
+        ),
+      ),
+    ),
 
     React.createElement(
       'div',
@@ -124,19 +161,26 @@ export function TunnelSettings(props: { rpcCall: RpcCall }) {
     ),
 
     Field({
+      id: 'remote-tunnel-hostname',
       label: 'Public hostname',
       hint: 'Leave blank for the quick target configured on the server.',
       children: React.createElement('input', {
+        id: 'remote-tunnel-hostname',
         type: 'text',
         value: hostname,
         placeholder: 'dsh.example.com',
         disabled: busy,
+        'data-remote-input': 'hostname',
         onChange: (e: any) => setHostname(e.target.value),
-        onBlur: () => void save({ tunnelHostname: hostname }),
+        // `hostname` is the key `maestro.getConfig` answers and the key the
+        // tunnel reads. `tunnelHostname` is the store's FLAT alias; sending it
+        // wrote `domains.tunnel.tunnelHostname`, which nothing reads back.
+        onBlur: () => void save({ hostname }),
       }),
     }),
 
     Field({
+      id: 'remote-public-pin',
       label: 'Public PIN',
       children: React.createElement('div', { 'data-remote-pin': '' },
         React.createElement('code', null, pin || '(not read yet)'),
@@ -146,11 +190,14 @@ export function TunnelSettings(props: { rpcCall: RpcCall }) {
     }),
 
     Field({
+      id: 'remote-pin-ttl',
       label: 'PIN session lifetime',
       hint: '0 is a session cookie. The host caps this at one year.',
       children: React.createElement('select', {
+        id: 'remote-pin-ttl',
         value: String(ttl),
         disabled: busy,
+        'data-remote-select': 'pinSessionTtlHours',
         onChange: (e: any) => setTtl(Number(e.target.value)),
         onBlur: () => void save({ pinSessionTtlHours: ttl }),
       }, PIN_TTL_PRESETS.map((p) =>
@@ -159,14 +206,16 @@ export function TunnelSettings(props: { rpcCall: RpcCall }) {
     }),
 
     Field({
+      id: 'remote-lan-pin',
       label: 'LAN PIN',
       hint: 'Off by default. Turning it on generates a LAN PIN on this machine.',
       children: React.createElement('div', { 'data-remote-lan': '' },
         React.createElement('input', {
+          id: 'remote-lan-pin',
           type: 'checkbox',
           checked: lan?.enabled === true,
           disabled: busy,
-          'aria-label': 'Enable LAN PIN',
+          'data-remote-toggle': 'lanPin',
           onChange: () => void act('maestro.lanPin.setEnabled', () => void refresh()),
         }),
         lan?.enabled ? React.createElement('code', null, ` ${lan.pin ?? ''}`) : null,

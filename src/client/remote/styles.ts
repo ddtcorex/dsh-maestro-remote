@@ -16,11 +16,14 @@ export const REMOTE_CSS = `
   min-width: 0; width: 100%; max-width: 640px;
 }
 
+/* House header: badge + title + one-line status. */
+[data-remote-header] { display: flex; gap: 10px; align-items: flex-start; padding: 2px 2px 8px; }
+[data-remote-heading] { display: flex; flex-direction: column; min-width: 0; }
 [data-remote-title] { margin: 0; font-size: 15px; font-weight: 600; line-height: 22px; }
-
-[data-remote-notice] { margin: 0; font-size: 12px; }
-[data-remote-notice][data-tone="ok"] { color: var(--dsw-alias-state-success-primary); }
-[data-remote-notice][data-tone="bad"] { color: var(--dsw-alias-state-error-primary); }
+[data-remote-status] { font-size: 12px; line-height: 16px; color: var(--dsw-alias-label-secondary); overflow-wrap: anywhere; }
+[data-remote-status] [data-remote-notice] { margin: 0; }
+[data-remote-status] [data-remote-notice][data-tone="ok"] { color: var(--dsw-alias-state-success-primary); }
+[data-remote-status] [data-remote-notice][data-tone="bad"] { color: var(--dsw-alias-state-error-primary); }
 
 [data-remote-actions] { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 [data-remote-actions] button {
@@ -31,17 +34,31 @@ export const REMOTE_CSS = `
 [data-remote-actions] button:disabled { opacity: 0.55; cursor: default; }
 [data-remote-actions] button:focus-visible { outline: 2px solid var(--dsw-alias-border-l2); outline-offset: 2px; }
 
-[data-remote-field] { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-[data-remote-label] { font-size: 12px; font-weight: 600; }
-[data-remote-hint] { margin: 0; font-size: 11px; line-height: 15px; color: var(--dsw-alias-label-secondary); }
+/* House row: label and hint left, control held right, hairline between. */
+[data-remote-row] {
+  display: flex; align-items: center; gap: 8px;
+  padding: 16px 0; border-bottom: 1px solid var(--dsw-alias-border-l2); min-width: 0;
+}
+[data-remote-row]:last-of-type { border-bottom: none; }
+[data-remote-row-text] { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding-right: 48px; }
+[data-remote-label] { font-size: 14px; font-weight: 400; line-height: 22px; color: var(--dsw-alias-label-primary); }
+[data-remote-hint] { margin: 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); }
+[data-remote-control] { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-height: 36px; }
 
-[data-remote-field] input[type="text"], [data-remote-field] select {
+[data-remote-control] input[type="text"], [data-remote-control] select {
   min-height: 32px; padding: 0 10px; border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1);
   color: inherit; font: inherit;
 }
-[data-remote-field] input[type="text"]:focus-visible, [data-remote-field] select:focus-visible {
+[data-remote-control] input:focus-visible, [data-remote-control] select:focus-visible {
   outline: 2px solid var(--dsw-alias-border-l2); outline-offset: 2px;
+}
+
+/* The checkbox is the one control the harness draws at its own size; without
+   this it rendered at the UA default 13px beside 32px fields in the same row. */
+[data-remote-control] input[type="checkbox"] {
+  width: 16px; height: 16px; margin: 0; flex: none;
+  accent-color: var(--dsw-alias-brand-primary, #0A84FF);
 }
 
 [data-remote-pin], [data-remote-lan] { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -53,6 +70,14 @@ export const REMOTE_CSS = `
   min-height: 32px; padding: 0 10px; border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1);
   color: inherit; font: inherit; cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  /* Below the measure the row stacks: a right-held control has no room left,
+     and a wrapped one reads as a third column. */
+  [data-remote-row] { flex-direction: column; align-items: stretch; gap: 8px; }
+  [data-remote-row-text] { padding-right: 0; }
+  [data-remote-control] { justify-content: flex-start; }
 }
 
 @media (max-width: 480px) {

@@ -55,9 +55,20 @@ export interface RpcDeps {
  * whitelist of key names rather than a flat-to-dotted map. Review's version
  * needed the dotted map because it wrote three domains at once; writing
  * `domains.tunnel.tunnel.*` is what mapping them here would produce.
+ *
+ * The names are the NESTED ones `maestro.getConfig` answers and the tunnel
+ * reads. Four of them have a different flat alias in the store's key map —
+ * `tunnelHostname`→`tunnel.hostname`, `tunnelId`→`tunnel.id`,
+ * `tunnelMode`→`tunnel.mode`, `tunnelCredentialsFile`→`tunnel.credentialsFile`
+ * — and this set used to list the ALIASES. A client therefore could not send the
+ * key `getConfig` just handed it, and a client that did send the alias stored
+ * `domains.tunnel.tunnelHostname`, which nothing reads back: the Public hostname
+ * field rendered empty while the tunnel served a hostname the whole time.
+ *
+ * `lanPort` and `lanHost` stay out on purpose — see below.
  */
 const SAVABLE = new Set([
-  'tunnelMode', 'quickTarget', 'tunnelId', 'tunnelCredentialsFile', 'tunnelHostname',
+  'mode', 'quickTarget', 'id', 'credentialsFile', 'hostname',
   'proxyPort', 'proxyHost', 'lanPinEnabled', 'pinSessionTtlHours',
 ])
 

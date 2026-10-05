@@ -8,7 +8,16 @@
  * mounts. The marker owns no shell structure and is removed on disposal.
  */
 
-export const SETTINGS_NAV_MARKER = 'data-maestro-gateway-settings-nav';
+/**
+ * This package's own marker.
+ *
+ * The name MUST be unique across plugins. `registerSettingsNavIcon` clears its
+ * marker from any row that is not its own section, so two plugins sharing one
+ * name fight over the same attribute and only the last `sync()` survives. Four
+ * wave-2 sections shipped the identical name copied from gateway, three of them
+ * silently lost their nav icon, and nothing logged.
+ */
+export const SETTINGS_NAV_MARKER = 'data-maestro-remote-settings-nav'
 
 /** Minimal DOM surface used here; tests inject a stub instead of `document`. */
 type NodeSeq = Iterable<Element> & { forEach(fn: (el: Element) => void): unknown };
@@ -20,6 +29,7 @@ interface DomScope {
 type ElementLike = Element & {
   setAttribute(name: string, value: string): void
   removeAttribute(name: string): void
+  hasAttribute(name: string): boolean
 };
 
 export function registerSettingsNavIcon(
@@ -45,7 +55,10 @@ export function registerSettingsNavIcon(
         button.textContent != null &&
         button.textContent.trim() === currentLabel;
       if (matches) el.setAttribute(SETTINGS_NAV_MARKER, '');
-      else el.removeAttribute(SETTINGS_NAV_MARKER);
+      // Only ever clear this plugin's own marker, and only from a row that
+      // carries it. Touching rows that do not is how one plugin's icon steals
+      // another's.
+      else if (el.hasAttribute(SETTINGS_NAV_MARKER)) el.removeAttribute(SETTINGS_NAV_MARKER);
     }
   };
 

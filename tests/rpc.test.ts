@@ -152,3 +152,33 @@ describe('PIN endpoints', () => {
     expect(maestroTunnel.reloadConfig).toHaveBeenCalled()
   })
 })
+describe('maestro.saveConfig key names', () => {
+  it('accepts the nested domain keys getConfig answers', async () => {
+    const { handler } = deps()
+    // `maestro.getConfig` answers the raw `domains.tunnel`, so a save has to
+    // speak the same vocabulary. The whitelist listed the store's FLAT aliases
+    // for the four keys whose flat and nested names differ, so a client that
+    // answered `hostname` was rejected and one that sent `tunnelHostname`
+    // wrote a key nothing reads back.
+    for (const key of ['hostname', 'mode', 'id', 'credentialsFile'] as const) {
+      const res: any = await handler('maestro.saveConfig', { [key]: 'x' })
+      expect(res.ok, `${key} must be accepted`).toBe(true)
+    }
+  })
+
+  it('rejects a key the tunnel never reads, rather than storing it silently', async () => {
+    const { handler } = deps()
+    // The flat aliases are how readFlat SPELLS the nested keys; accepting them
+    // here stored `domains.tunnel.tunnelHostname`, which nothing reads.
+    const res: any = await handler('maestro.saveConfig', { tunnelHostname: 'host.example.com' })
+    expect(res.ok).toBe(false)
+    // `fail` answers a plain string, not the DSH RPC error envelope.
+    expect(res.error).toMatch(/Unknown settings key/)
+  })
+
+  it('still refuses an unknown key outright', async () => {
+    const { handler } = deps()
+    const res: any = await handler('maestro.saveConfig', { notAKey: 1 })
+    expect(res.ok).toBe(false)
+  })
+})
