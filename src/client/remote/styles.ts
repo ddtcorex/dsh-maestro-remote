@@ -54,6 +54,13 @@ export const REMOTE_CSS = `
   outline: 2px solid var(--dsw-alias-border-l2); outline-offset: 2px;
 }
 
+/* The checkbox is the one control the harness draws at its own size; without
+   this it rendered at the UA default 13px beside 32px fields in the same row. */
+[data-remote-control] input[type="checkbox"] {
+  width: 16px; height: 16px; margin: 0; flex: none;
+  accent-color: var(--dsw-alias-brand-primary, #0A84FF);
+}
+
 [data-remote-pin], [data-remote-lan] { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 [data-remote-pin] code, [data-remote-lan] code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
