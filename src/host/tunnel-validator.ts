@@ -1,6 +1,6 @@
 import { defineDomain, type DomainValidator } from './vendor/store.js'
 
-/** Cloudflare tunnel ids are UUIDs; a name like `dsh-home` is not one. */
+/** Cloudflare tunnel ids are UUIDs; a readable name is not one. */
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
 const bad = (error: string): { ok: false; error: string } => ({ ok: false, error })
