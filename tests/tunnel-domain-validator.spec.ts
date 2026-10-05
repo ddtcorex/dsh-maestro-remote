@@ -73,7 +73,7 @@ describe('tunnel domain validator', () => {
   })
 
   it('rejects a tunnel id that is not a UUID', () => {
-    expect(tunnelValidator.parse({ id: 'dsh-home' }).ok).toBe(false)
+    expect(tunnelValidator.parse({ id: 'a-readable-name' }).ok).toBe(false)
     expect(
       tunnelValidator.parse({ id: 'a6a31b92-1111-2222-3333-444455556666' }).ok,
     ).toBe(true)
