@@ -7,3 +7,8 @@ client/login.css
 # Re-include coordination files ignored by the global core.excludesFile
 !AGENTS.md
 !CLAUDE.md
+
+# Absorbed from dsh-maestro-patch: its changelog is kept as history.
+
+# Client typecheck output from tsconfig.client.json
+.client-build/

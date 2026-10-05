@@ -5,7 +5,7 @@ import {
   RUNTIME_KEYS,
   readFlat,
   writeLegacyPatch,
-} from '@ddtcorex/dsh-maestro-config-lib'
+} from './vendor/store.js'
 
 export type ReviewSkillProfile = 'magento2' | 'generic' | 'laravel' | 'custom'
 
@@ -63,7 +63,7 @@ function resolveDshHome(dshHome?: string): string {
 
 /**
  * Settings live in the SHARED namespaced store (`~/.dsh/dsh-maestro-config/settings.json`,
- * owned by @ddtcorex/dsh-maestro-config-lib); this store is a thin adapter that
+ * owned by dsh-maestro-core and embedded here at `src/host/vendor/store.ts`); this store is a thin adapter that
  * keeps the package's flat `MaestroUserConfig` API while delegating persistence.
  * Machine runtime state (RUNTIME_KEYS) never enters settings — it stays in this
  * package's own sidecar so a settings edit can never silently flip tunnel state.

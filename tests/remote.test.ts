@@ -101,17 +101,32 @@ describe('dsh-maestro-remote', () => {
     expect(pkg).not.toBeNull();
     expect(pkg.name).toBe('@ddtcorex/dsh-maestro-remote');
     expect(pkg.dsh.bundle.patch).toBe('./cordis.patch.yml');
-    // Host-only today: a dsh.client declaration without an exports['./client']
-    // bundle hard-throws the whole web boot (client-modules index.ts:453).
-    expect(pkg.dsh.client).toBeUndefined();
+    // A dsh.client declaration WITHOUT an exports['./client'] bundle hard-throws
+    // the whole web boot (client-modules index.ts:453). This package now ships
+    // a settings section, so the invariant is the pairing rather than either
+    // half being absent.
+    const declaresClient = pkg.dsh?.client !== undefined
+    expect(declaresClient).toBe(Boolean(pkg.exports?.['./client']))
+    if (declaresClient) {
+      expect(pkg.dsh.client.platform).toBe('web')
+      expect(pkg.dsh.client.inject).toEqual(expect.arrayContaining([
+        '@deepseek-ai/dsh-client-connection',
+        '@deepseek-ai/dsh-client-ui-slots',
+      ]))
+    }
   });
 });
 
 describe('cordis.patch.yml row wiring', () => {
-  it('loads both the rpc entry and the tunnel provider', () => {
+  it('loads the rpc entry, the tunnel provider and the patch shim', () => {
     const yml = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../cordis.patch.yml'), 'utf8');
     expect(yml).toContain("name: '@ddtcorex/dsh-maestro-remote/lib/index.js'");
     expect(yml).toContain("name: '@ddtcorex/dsh-maestro-remote/lib/tunnel.js'");
+    // The absorbed patch shim keeps its own row so the patches still work with
+    // the tunnel off, which a row folded into the tunnel provider could not
+    // guarantee.
+    expect(yml).toContain("name: '@ddtcorex/dsh-maestro-remote/lib/patch/index.js'");
+    expect(yml).toContain('id: maestro-patch');
     // Rows import deep subpaths, so the exports map must expose ./lib/*.
     const pkg2 = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8'));
     expect(pkg2.exports['./lib/*']).toBe('./lib/*');
