@@ -1,5 +1,9 @@
 import type { Context } from '@deepseek-ai/cordis';
 import { createRpcHandler, type NotifierLike, RPC_CHANNEL } from './rpc.js';
+// Side-effect import: registers the `tunnel` domain validator with the embedded
+// store, so EVERY write to that domain is checked — not only the one that
+// arrives as a Settings save. `tunnel.ts` imports it too for the sibling row.
+import './tunnel-validator.js';
 
 export { RPC_CHANNEL };
 

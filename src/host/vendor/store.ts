@@ -1,7 +1,8 @@
-// vendored from dsh-maestro-core store, sha256:6a967a5cd862999c8e8b7f0513bf2808b4a24b990b4641038a6b55513dc35626
+// vendored from dsh-maestro-core store, sha256:ca062c527bb30c030c086751be275ee379071f33691568ff7d0eae4372012829
 import { homedir } from 'node:os'
+import { randomBytes } from 'node:crypto'
 import { dirname, join } from 'node:path'
-import { mkdir, open, readFile, rename, unlink, stat, rm, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, rename, unlink, stat, rm, writeFile, link } from 'node:fs/promises'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { watch, type FSWatcher } from 'node:fs'
 
@@ -20,7 +21,29 @@ const EMPTY_DOC: SettingsDoc = { version: 1, domains: {} }
 const domainValidators = new Map<string, DomainValidator>()
 const changeCbs = new Set<(domain: string) => void>()
 
-let cached: { key: string; doc: SettingsDoc; mtimeMs: number } | null = null
+/**
+ * Identity of the settings file a cached document was read from. mtime alone is
+ * not enough: two copies writing within one filesystem timestamp tick, or an
+ * editor that restores the mtime, would leave a stale document in the cache.
+ * Every store write is a temp file + rename, so a changed inode is the reliable
+ * signal; size catches an in-place edit that kept the mtime.
+ */
+interface FileSig { mtimeMs: number; ino: number; size: number }
+
+let cached: { key: string; doc: SettingsDoc; sig: FileSig | null } | null = null
+
+async function fileSig(path: string): Promise<FileSig | null> {
+  try {
+    const st = await stat(path)
+    return { mtimeMs: st.mtimeMs, ino: st.ino, size: st.size }
+  } catch {
+    return null
+  }
+}
+
+function sameSig(a: FileSig | null, b: FileSig | null): boolean {
+  return a !== null && b !== null && a.mtimeMs === b.mtimeMs && a.ino === b.ino && a.size === b.size
+}
 
 function resolveDshHome(explicit?: string): string {
   return explicit ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')
@@ -82,6 +105,21 @@ function readSnapshotSync(home: string): Record<string, string> {
   }
 }
 
+/**
+ * Run every listener for one domain. Each callback gets its own try/catch: a
+ * throwing listener must neither reject the write that already committed nor
+ * hide the change from the listeners registered after it.
+ */
+function fire(domain: string): void {
+  for (const cb of [...changeCbs]) {
+    try {
+      cb(domain)
+    } catch (err) {
+      console.warn(`config-lib: onChange callback for '${domain}' threw: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+}
+
 async function checkExternal(): Promise<void> {
   if (changeCbs.size === 0 || watchedHome === null || checking) return
   checking = true
@@ -95,7 +133,7 @@ async function checkExternal(): Promise<void> {
       if (snapshot[domain] !== next[domain]) changed.push(domain)
     }
     snapshot = next
-    for (const domain of changed) for (const cb of [...changeCbs]) cb(domain)
+    for (const domain of changed) fire(domain)
   } catch {
     // A transient read failure must never break boot; the next tick retries.
   } finally {
@@ -132,10 +170,17 @@ function startWatching(): void {
   try {
     // fs.watch is not recursive, so it only sees the file when its own
     // directory exists; the store is the only writer of that path either way.
-    mkdirSync(dirname(path), { recursive: true })
-    watcher = watch(dirname(path), { persistent: false }, (_event, filename) => {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+    const w = watch(dirname(path), { persistent: false }, (_event, filename) => {
       if (filename === null || filename === FILE_BASENAME) scheduleCheck()
     })
+    // An unhandled 'error' event (EMFILE, directory removed, ...) would crash
+    // the host. Drop the watcher and let the poll below carry on alone.
+    w.on('error', () => {
+      try { w.close() } catch { /* already closed */ }
+      if (watcher === w) watcher = null
+    })
+    watcher = w
   } catch {
     watcher = null // polling below still covers the change
   }
@@ -167,22 +212,62 @@ export function resetForTests(): void {
 // locking + io
 // ---------------------------------------------------------------------------
 
+/**
+ * Lock timing. A lock is only stolen once it is older than STALE_MS, which is
+ * deliberately longer than the time a waiter is willing to wait: a live writer
+ * that is merely slow must time its waiters out, never get robbed.
+ */
+const LOCK_TIMEOUT_MS = 5_000
+const LOCK_STALE_MS = 30_000
+
+/** Settings directory: created 0700, lock file 0600 (the settings file is 0600 too). Modes apply at creation only; existing paths are never chmod-ed. */
+const DIR_MODE = 0o700
+const FILE_MODE = 0o600
+
+/**
+ * Move a stale lock aside and delete it. rename() is atomic, so of several
+ * waiters only one moves the file. If the moved file turns out not to be the
+ * one we judged stale (a new owner took the path between our stat and the
+ * rename), it is put back with link(), which refuses to overwrite.
+ */
+async function stealStaleLock(lockPath: string, observedIno: number): Promise<void> {
+  const aside = `${lockPath}.stale-${randomBytes(4).toString('hex')}`
+  try {
+    await rename(lockPath, aside)
+  } catch {
+    return // someone else removed or stole it first
+  }
+  try {
+    const moved = await stat(aside)
+    if (moved.ino !== observedIno) await link(aside, lockPath).catch(() => {})
+  } catch {
+    /* nothing to restore */
+  } finally {
+    await rm(aside, { force: true }).catch(() => {})
+  }
+}
+
 async function withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
-  await mkdir(dirname(path), { recursive: true }) // the store dir may not exist on first write
+  await mkdir(dirname(path), { recursive: true, mode: DIR_MODE }) // the store dir may not exist on first write
   const lockPath = `${path}.lock`
-  const deadline = Date.now() + 5_000
-  let handle: Awaited<ReturnType<typeof open>> | null = null
+  const token = `${process.pid}-${randomBytes(8).toString('hex')}`
+  const deadline = Date.now() + LOCK_TIMEOUT_MS
   for (;;) {
     try {
-      handle = await open(lockPath, 'wx')
+      const handle = await open(lockPath, 'wx', FILE_MODE)
+      try {
+        await handle.writeFile(token)
+      } finally {
+        await handle.close()
+      }
       break
     } catch (err: any) {
       if (err?.code !== 'EEXIST') throw err
       // Break stale locks left behind by a crashed writer.
       try {
         const st = await stat(lockPath)
-        if (Date.now() - st.mtimeMs > 5_000) {
-          await rm(lockPath, { force: true })
+        if (Date.now() - st.mtimeMs > LOCK_STALE_MS) {
+          await stealStaleLock(lockPath, st.ino)
           continue
         }
       } catch {
@@ -195,8 +280,13 @@ async function withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn()
   } finally {
-    await unlink(lockPath).catch(() => {})
-    void handle // closed fd via unlink; keep handle referenced for GC clarity
+    // Only release a lock that is still ours: if it was stolen and re-acquired
+    // meanwhile, deleting it would break the new owner's mutual exclusion.
+    try {
+      if ((await readFile(lockPath, 'utf8')) === token) await unlink(lockPath)
+    } catch {
+      /* already gone */
+    }
   }
 }
 
@@ -234,10 +324,16 @@ function deepMerge(base: unknown, patch: unknown): unknown {
 }
 
 async function writeDocLocked(path: string, doc: SettingsDoc): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
+  await mkdir(dirname(path), { recursive: true, mode: DIR_MODE })
   const tmp = `${path}.tmp-${Math.random().toString(16).slice(2, 10)}`
-  await writeFile(tmp, JSON.stringify(doc, null, 2) + '\n', { mode: 0o600 })
-  await rename(tmp, path) // atomic on the same filesystem; rename carries the 600 mode
+  try {
+    await writeFile(tmp, JSON.stringify(doc, null, 2) + '\n', { mode: FILE_MODE })
+    await rename(tmp, path) // atomic on the same filesystem; rename carries the 600 mode
+  } finally {
+    // After a successful rename the temp name is gone and this is a no-op; after
+    // a failed write or rename it removes the orphan instead of leaking one per try.
+    await rm(tmp, { force: true }).catch(() => {})
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -250,17 +346,12 @@ export async function load(opts?: { dshHome?: string }): Promise<SettingsDoc> {
   if (cached && cached.key === homeKey) {
     // One stat per load: out-of-band edits (other processes) must surface
     // without a restart.
-    try {
-      const st = await stat(path)
-      if (st.mtimeMs === cached.mtimeMs) return cached.doc
-    } catch {
-      return cached.doc // stat failed (vanished/locked) — serve stale, never break boot
-    }
+    const now = await fileSig(path)
+    if (now === null) return cached.doc // stat failed (vanished/locked) — serve stale, never break boot
+    if (sameSig(now, cached.sig)) return cached.doc
   }
   const doc = await readDoc(path)
-  let mtimeMs = 0
-  try { mtimeMs = (await stat(path)).mtimeMs } catch {}
-  cached = { key: homeKey, doc, mtimeMs }
+  cached = { key: homeKey, doc, sig: await fileSig(path) }
   return doc
 }
 
@@ -288,13 +379,11 @@ export async function set(
     doc.domains[domain] = merged
     written = merged
     await writeDocLocked(path, doc)
-    let mtimeMs = 0
-    try { mtimeMs = (await stat(path)).mtimeMs } catch {}
-    cached = { key, doc, mtimeMs }
+    cached = { key, doc, sig: await fileSig(path) }
   })
   // Refresh the watched copy first so the watcher sees no diff for this write.
   if (watchedHome === key) snapshot[domain] = JSON.stringify(written) ?? 'undefined'
-  for (const cb of [...changeCbs]) cb(domain)
+  fire(domain)
 }
 
 /**
@@ -331,14 +420,12 @@ export async function unset(
     doc.domains[domain] = next
     written = next
     await writeDocLocked(path, doc)
-    let mtimeMs = 0
-    try { mtimeMs = (await stat(path)).mtimeMs } catch {}
-    cached = { key: homeKey, doc, mtimeMs }
+    cached = { key: homeKey, doc, sig: await fileSig(path) }
     return true
   })
   if (deleted) {
     if (watchedHome === homeKey) snapshot[domain] = JSON.stringify(written) ?? 'undefined'
-    for (const cb of [...changeCbs]) cb(domain)
+    fire(domain)
   }
   return deleted
 }
