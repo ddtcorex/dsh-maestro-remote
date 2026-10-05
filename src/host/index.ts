@@ -20,7 +20,10 @@ export default {
   inject: ['webServer', 'connection'] as const,
   apply(ctx: Context) {
     ctx.effect(() => {
-      const tunnel = (ctx as any).maestroTunnel;
+      // ctx.get, never ctx.tunnel: Cordis THROWS when a fiber reads a property
+      // it did not declare, so an optimistic property read turns a missing
+      // OPTIONAL service into a row that fails to activate.
+      const tunnel = (ctx as any).get?.('maestroTunnel');
       if (tunnel === undefined) {
         // No tunnel provider installed: register nothing rather than answer
         // endpoints that cannot work. A missing service disables the feature
