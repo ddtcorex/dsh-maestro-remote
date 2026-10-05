@@ -2,7 +2,7 @@
   "name": "@ddtcorex/dsh-maestro-remote",
   "private": false,
   "version": "0.4.0",
-  "description": "Maestro remote — tunnel + remote-proxy + PIN + QR for DeepSeek Harness",
+  "description": "Maestro remote \u2014 tunnel + remote-proxy + PIN + QR for DeepSeek Harness",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -35,7 +35,7 @@
     "build:client": "node client/build.mjs",
     "prepublishOnly": "pnpm run build && pnpm run build:client",
     "verify": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "test": "vitest run"
+    "test": "NODE_ENV=test vitest run"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
@@ -45,16 +45,19 @@
   "dependencies": {},
   "devDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
-    "typescript": "^5.5.0",
-    "vitest": "^2.0.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^22.0.0",
     "@types/qrcode": "^1.5.5",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.0",
     "clsx": "^2.1.1",
     "esbuild": "^0.25.12",
+    "jsdom": "^30.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@types/react": "~18.3.1",
-    "@types/react-dom": "~18.3.0"
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
   },
   "packageManager": "pnpm@11.7.0",
   "dsh": {
