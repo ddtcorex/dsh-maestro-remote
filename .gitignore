@@ -9,3 +9,6 @@ client/login.css
 !CLAUDE.md
 
 # Absorbed from dsh-maestro-patch: its changelog is kept as history.
+
+# Client typecheck output from tsconfig.client.json
+.client-build/
