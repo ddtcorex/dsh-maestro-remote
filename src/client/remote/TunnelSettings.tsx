@@ -68,7 +68,11 @@ export function TunnelSettings(props: { rpcCall: RpcCall }) {
       setLan(l)
       const cfg = await rpcCall('maestro.getConfig').catch(() => null)
       if (cfg) {
-        if (typeof cfg.tunnelHostname === 'string') setHostname(cfg.tunnelHostname)
+        // `maestro.getConfig` answers the raw NESTED `domains.tunnel`, whose
+        // hostname key is `hostname`. `tunnelHostname` is the FLAT alias the
+        // store's key map translates onto `tunnel.hostname`; reading it here
+        // always missed, and writing it created a key nothing read back.
+        if (typeof cfg.hostname === 'string') setHostname(cfg.hostname)
         if (typeof cfg.pinSessionTtlHours === 'number') setTtl(cfg.pinSessionTtlHours)
       }
     } catch (e) {
@@ -113,7 +117,11 @@ export function TunnelSettings(props: { rpcCall: RpcCall }) {
     [rpcCall, fail],
   )
 
-  const running = status?.status === 'running' || status?.tunnelRunning === true
+  // `TunnelStatus` is { running, mode, publicUrl, phase }. The section read
+  // `status` and `tunnelRunning` — neither of which the host emits — so a live
+  // tunnel rendered as stopped with a Start button.
+  const running = status?.running === true
+  const phase: string | undefined = typeof status?.phase === 'string' ? status.phase : undefined
 
   return React.createElement(
     'div',
@@ -133,7 +141,11 @@ export function TunnelSettings(props: { rpcCall: RpcCall }) {
           { 'data-remote-status': '' },
           notice
             ? React.createElement('p', { 'data-remote-notice': '', 'data-tone': notice.tone, role: 'status' }, notice.text)
-            : React.createElement('span', null, running ? 'Tunnel running.' : 'Tunnel stopped.'),
+            : React.createElement('span', null,
+                running
+                  ? (phase === 'ready' ? 'Tunnel running.' : `Tunnel ${phase ?? 'starting'}…`)
+                  : (phase === 'error' ? `Tunnel error: ${status?.errorMessage ?? 'unknown'}` : 'Tunnel stopped.'),
+              ),
         ),
       ),
     ),
@@ -158,9 +170,12 @@ export function TunnelSettings(props: { rpcCall: RpcCall }) {
         value: hostname,
         placeholder: 'dsh.example.com',
         disabled: busy,
-        'data-remote-input': 'tunnelHostname',
+        'data-remote-input': 'hostname',
         onChange: (e: any) => setHostname(e.target.value),
-        onBlur: () => void save({ tunnelHostname: hostname }),
+        // `hostname` is the key `maestro.getConfig` answers and the key the
+        // tunnel reads. `tunnelHostname` is the store's FLAT alias; sending it
+        // wrote `domains.tunnel.tunnelHostname`, which nothing reads back.
+        onBlur: () => void save({ hostname }),
       }),
     }),
 
