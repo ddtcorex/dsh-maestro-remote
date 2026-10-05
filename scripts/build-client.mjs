@@ -1,14 +1,18 @@
-// Bundle the Gateway section UI for the DSH browser loader with esbuild.
+// Bundle the Remote section UI for the DSH browser loader with esbuild.
 // JSX rides the bundle; react and the DSH platform modules stay external and
 // resolve from the host's module table at runtime (same contract as the
 // dsh-maestro-config / dsh-maestro-sync build-client scripts).
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const outputPath = resolve(root, 'lib/client.js')
+// The loader id is the manifest name, read rather than written out: this script
+// was copied from a sibling package, and the copy shipped that sibling's id, so
+// the bundle registered under a name the host never asked for.
+const id = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')).name
 
 const result = await build({
   entryPoints: [resolve(root, 'src/client/index.tsx')],
@@ -27,7 +31,7 @@ const bundled = result.outputFiles?.[0]?.text
 if (!bundled) throw new Error('esbuild did not produce a client bundle')
 
 const wrapped = `window.__ModuleLoader__.load({
-  id: '@ddtcorex/dsh-maestro-gateway',
+  id: '${id}',
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
