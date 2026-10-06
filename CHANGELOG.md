@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.2] - 2026-10-06
+
+### Fixed
+
+- **Phone layout.** Every settings field fills the row width, with or without a Save button (the button stays on the same row), and a row whose control is a single checkbox keeps its label left and a 44px tap target right on one line instead of a lone box under the label.
+
 ## [0.5.1] - 2026-10-06
 
 ### Fixed
