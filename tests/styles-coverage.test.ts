@@ -36,16 +36,31 @@ function controlTypesEmitted(): string[] {
 const stripped = (css: string): string => css.replace(/\/\*[\s\S]*?\*\//g, '')
 
 /**
- * The declaration body of the rule whose selector list starts with `prefix` and
- * which styles a form control. Scoping the assertion to this body is what stops
- * an unrelated rule elsewhere in the sheet from satisfying it.
+ * The field rule whose selector list starts with `prefix` and which styles a
+ * form control: both its SELECTOR and its declaration body.
+ *
+ * Both are returned because they answer different questions and an assertion
+ * aimed at the wrong one is silently unfalsifiable. `input[type="checkbox"]` is
+ * a SELECTOR token — a declaration body can never contain it — so a check like
+ * `expect(body).not.toContain('input[type="checkbox"]')` passes no matter what
+ * the selector says. That is how the checkbox leaked into the field box here
+ * with the suite still green.
+ *
+ * Scoping to this rule also stops an unrelated rule elsewhere in the sheet from
+ * satisfying an assertion about the field box.
  */
-function fieldRuleBody(css: string, prefix: string): string {
+function fieldRule(css: string, prefix: string): { selector: string; body: string } {
   const source = stripped(css)
-  for (const m of source.matchAll(new RegExp(`(${prefix.replace(/[[\]]/g, '\\$&')}[^{}]*(?:input|select|textarea)[^{}]*)\\{([^{}]*)\\}`, 'g'))) {
-    if (m[2]!.includes('min-height')) return m[2]!
+  const pattern = new RegExp(`(${prefix.replace(/[[\]]/g, '\\$&')}[^{}]*(?:input|select|textarea)[^{}]*)\\{([^{}]*)\\}`, 'g')
+  for (const m of source.matchAll(pattern)) {
+    if (m[2]!.includes('min-height')) return { selector: m[1]!, body: m[2]! }
   }
-  return ''
+  return { selector: '', body: '' }
+}
+
+/** Just the field rule's declaration body. */
+function fieldRuleBody(css: string, prefix: string): string {
+  return fieldRule(css, prefix).body
 }
 
 /**
@@ -55,12 +70,17 @@ function fieldRuleBody(css: string, prefix: string): string {
  *
  * Tokens, never resolved values: `--dsw-radius-md` must stay the token so a
  * host change reaches this plugin without editing it.
+ *
+ * Every property of the spec's declaration is asserted, not a subset — a
+ * reverting mutation on any one of them must turn this red.
  */
 const standardBox = (body: string): boolean =>
   /padding:\s*6px 12px/.test(body)
   && /border:\s*0\.5px solid var\(--dsw-alias-border-l4\)/.test(body)
   && /border-radius:\s*var\(--dsw-radius-md\)/.test(body)
   && /background:\s*var\(--dsw-alias-bg-layer-3\)/.test(body)
+  && /color:\s*var\(--dsw-alias-label-primary\)/.test(body)
+  && /font:\s*inherit/.test(body)
   && /min-height:\s*44px/.test(body)
 
 describe('dsh-maestro-remote settings stylesheet', () => {
@@ -118,8 +138,11 @@ describe('dsh-maestro-remote settings stylesheet', () => {
   it('the shared box never reaches the checkbox', () => {
     // The harness draws a checkbox at 16px square. A field-box rule that also
     // matched it would inflate it to 44px; the checkbox rule must stay separate.
-    const body = fieldRuleBody(REMOTE_CSS, '[data-remote-control]')
-    expect(body).not.toContain('input[type="checkbox"]')
+    // Asserted on the SELECTOR, which is the only place this token can appear.
+    // An earlier version checked the declaration body and could not fail.
+    const { selector } = fieldRule(REMOTE_CSS, '[data-remote-control]')
+    expect(selector, 'the field rule must exist').not.toBe('')
+    expect(selector, 'the field box must not select the checkbox — it would inherit 44px').not.toContain('checkbox')
     expect(REMOTE_CSS).toMatch(/input\[type="checkbox"\]\s*\{[^}]*width:\s*16px/s)
   })
 
