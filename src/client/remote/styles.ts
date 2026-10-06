@@ -45,10 +45,18 @@ export const REMOTE_CSS = `
 [data-remote-hint] { margin: 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); }
 [data-remote-control] { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-height: 36px; }
 
+/* Every row control gets the same box — the shared settings field box, copied
+   from the host's own form primitive (ui-primitives ConfigField) so this tab
+   follows the shell instead of carrying a geometry of its own. Only
+   min-height: 44px is Maestro's: it is the touch target AGENTS.md requires,
+   which the host's line-box sizing does not give.
+   The select takes the same box: this sheet draws no custom arrow (no
+   appearance:none, no background-image), so the UA reserves its own space and
+   an arrow-clearing padding override would only be a second geometry. */
 [data-remote-control] input[type="text"], [data-remote-control] select {
-  min-height: 32px; padding: 0 10px; border-radius: 8px;
-  border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1);
-  color: inherit; font: inherit;
+  min-height: 44px; padding: 6px 12px; border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary); font: inherit;
 }
 [data-remote-control] input:focus-visible, [data-remote-control] select:focus-visible {
   outline: 2px solid var(--dsw-alias-border-l2); outline-offset: 2px;
