@@ -85,7 +85,15 @@ export const REMOTE_CSS = `
      and a wrapped one reads as a third column. */
   [data-remote-row] { flex-direction: column; align-items: stretch; gap: 8px; }
   [data-remote-row-text] { padding-right: 0; }
-  [data-remote-control] { justify-content: flex-start; }
+  /* Every field takes the full row width, with or without a Save button: the
+     button stays on the same row and the input takes the rest. */
+  [data-remote-control] { justify-content: flex-start; width: 100%; }
+  [data-remote-control] input[type="text"], [data-remote-control] input[type="password"], [data-remote-control] select { flex: 1 1 auto; min-width: 0; width: 100%; }
+  /* A checkbox row does not stack: label and hint stay left, the box is held
+     right as a 44px tap target on the same line. Stacked, it left a lone 16px
+     box on a line of its own under the label. */
+  [data-remote-row]:has(> [data-remote-control] > input[type="checkbox"]:only-child) { flex-direction: row; align-items: center; gap: 12px; }
+  [data-remote-row]:has(> [data-remote-control] > input[type="checkbox"]:only-child) [data-remote-control] { flex: none; width: auto; min-width: 44px; min-height: 44px; justify-content: center; }
 }
 
 @media (max-width: 480px) {
