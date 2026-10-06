@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.1] - 2026-10-06
+
+### Fixed
+
+- **Settings fields share one box.** The host's own `ConfigField` declaration plus a 44px touch floor, replacing a 32px field that disagreed with the other Maestro sections.
+
 ## [0.5.0] - 2026-10-05
 
 ### Security
