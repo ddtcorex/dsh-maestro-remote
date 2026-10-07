@@ -55,10 +55,6 @@ export async function readPin(dshHome?: string): Promise<string> {
   return writePinFile(newPin(), pinPath(dshHome))
 }
 
-export async function writePin(pin: string, dshHome?: string): Promise<string> {
-  return writePinFile(pin, pinPath(dshHome))
-}
-
 export async function rotatePin(dshHome?: string): Promise<string> {
   return writePinFile(newPin(), pinPath(dshHome))
 }

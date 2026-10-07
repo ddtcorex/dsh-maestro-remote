@@ -134,7 +134,6 @@ export interface NamedTunnelConfigParams {
   credentialsFile: string
   hostname: string
   proxyPort: number // webServer.port — single ingress
-  // webhookPort?: number // deprecated, ignored if present
 }
 export async function writeNamedTunnelConfig(params: NamedTunnelConfigParams): Promise<string> {
   const path = join(params.dshHome, 'dsh-maestro-remote', 'cloudflared-config.yml')
@@ -297,18 +296,6 @@ export const name = 'maestro-tunnel'
 // readToken() for the actual race fix. The service itself is reached through a
 // nested ctx.inject(["connection"]) in apply(), which does not defer apply().
 export const inject = ['webServer']
-
-/**
- * Test seam: lets specs stub the cloudflared resolver for tunnels started
- * through apply() — without it, a spec machine without cloudflared on PATH
- * would hit the real download chain. Undefined in production.
- */
-let testResolverInternals: { commandOnPath?: () => boolean; fetch?: typeof fetch } | undefined
-
-/** Register resolver internals used by every subsequent apply()-driven start. */
-export function setResolverInternalsForTests(internals: typeof testResolverInternals): void {
-  testResolverInternals = internals
-}
 
 /**
  * Login-cookie lifetime for the next login, read from the shared settings store
@@ -598,9 +585,6 @@ export function apply(ctx: Context): void {
             home: process.env.DSH_HOME,
             signal: abort.signal,
             onPhase: (phase) => { status = { ...status, phase } },
-            // The plugin process itself is the "PATH" for tests; production
-            // resolves through the real PATH check inside resolveCloudflared.
-            ...(testResolverInternals !== undefined ? { internals: testResolverInternals } : {}),
           })
           current = { handle, mode: 'quick', url: handle.url, disposeExit: watchExit(handle) }
           status = { running: true, mode: 'quick', publicUrl: handle.url, phase: 'ready' }

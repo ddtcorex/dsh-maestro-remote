@@ -14,7 +14,7 @@ import {
   MAESTRO_MARK_VIEWBOX,
 } from './maestro-mark.js'
 
-export function MaestroMark(props: { size?: number }) {
+function MaestroMark(props: { size?: number }) {
   const s = props.size ?? 16
   return h('svg', { width: s, height: s, viewBox: MAESTRO_MARK_VIEWBOX, fill: 'none', 'aria-hidden': 'true' } as any,
     h('path', { d: MAESTRO_MARK_PATH, stroke: 'currentColor', strokeWidth: MAESTRO_MARK_STROKE_WIDTH, strokeLinecap: 'round', strokeLinejoin: 'round' } as any),
