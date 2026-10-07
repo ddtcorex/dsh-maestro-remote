@@ -29,11 +29,35 @@ published settings library. Machine runtime state
 (`~/.dsh/dsh-maestro-remote/runtime.json`) so editing settings can never silently flip
 tunnel state.
 
+## Requirements
+
+- Node.js `^22.19.0 || >=24.0.0` and pnpm 11+. A shell that defaults to Node 20 fails with `No such built-in module: node:sqlite`; put a Node 22 `bin` first on `PATH` before running `dsh` or `pnpm`.
+- DSH 0.1.x or 0.2.x (peer range `<0.3.0-0`).
+
 ## Install
 
 ```sh
 dsh plugin --profile web add @ddtcorex/dsh-maestro-remote
 ```
+
+The package ships its own `cordis.patch.yml`, applied automatically. It includes a
+`connection` entry that declares `webServer`, which DSH 0.2.x needs before
+`rpc.handle` can register a channel. Do not copy it into the profile patch, and do not
+add the rows by hand (duplicate ids crash the loader). Restart `dsh web` after install.
+
+To get an exact release instead of whatever the package manager resolves, pin it:
+`dsh plugin --profile web add @ddtcorex/dsh-maestro-remote@<version>`.
+
+Installed with `link:` from a checkout? After every `git pull`, run `pnpm install && pnpm build`
+(`lib/` is gitignored) and restart `dsh web`.
+
+## Putting the PIN in front of a tunnel
+
+The proxy listens on port `3081` by default (`proxyPort` in the settings store; it walks up
+to 9 ports if that one is busy). A named tunnel whose ingress still points at the raw
+`dsh web` port bypasses the PIN, so point the tunnel `service:` at the proxy port instead.
+The 8-digit PIN lives in `~/.dsh/dsh-maestro-remote/pin` (created on first use); rotate it
+from Settings > Maestro Remote. The PIN cookie lifetime is `pinSessionTtlHours`.
 
 ## Development
 
