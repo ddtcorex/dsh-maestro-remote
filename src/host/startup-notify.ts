@@ -61,11 +61,6 @@ export function scheduleStartupNotification(dependencies: StartupNotifyDependenc
       return
     }
     g.__maestroStartupNotified = now
-    // Debug trace for "gửi 2 messages" investigation — append to /tmp for post-restart inspection
-    try {
-      const { appendFileSync } = await import('node:fs')
-      appendFileSync('/tmp/telegram-startup-trace.log', `${new Date().toISOString()} pid=${process.pid} scheduleStartupNotification firing\n`)
-    } catch {}
     const raw = dependencies.notifier
     const notifier = typeof raw === 'function' ? (raw as () => NotifierLike | undefined)() : raw
     if (notifier === undefined) return
