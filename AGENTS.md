@@ -55,4 +55,4 @@ pnpm build    # tsc host + tsc client + esbuild bundle (scripts/build-client.mjs
 
 ## Validation
 
-`pnpm verify` + `pnpm test` green before any success claim. A tunnel feature must be validated live (a real tunnel start/stop + proxy round-trip), not just via unit tests.
+`pnpm verify` + `pnpm test` green before any success claim. Run `pnpm build` before `pnpm test` on a clean tree: `tests/client-loader-id.spec.ts` and `tests/row-addressing.spec.ts` read `lib/` and fail without it (verified on master, not caused by any recent change). A tunnel feature must be validated live (a real tunnel start/stop + proxy round-trip), not just via unit tests.
