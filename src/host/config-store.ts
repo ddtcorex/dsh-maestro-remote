@@ -9,7 +9,6 @@ import {
 
 export interface MaestroUserConfig {
   tunnelMode?: 'quick' | 'named'
-  quickTarget?: 'dsh-web' | 'webhook'
   tunnelId?: string
   tunnelCredentialsFile?: string
   tunnelHostname?: string
