@@ -7,31 +7,8 @@ import {
   writeLegacyPatch,
 } from './vendor/store.js'
 
-export type ReviewSkillProfile = 'magento2' | 'generic' | 'laravel' | 'custom'
-
-export interface ReviewModelSelection {
-  provider: string
-  model: string
-  reasoningEffort?: string
-}
-
 export interface MaestroUserConfig {
-  gitlabBaseUrl?: string
-  gitlabToken?: string
-  botUsername?: string
-  webhookSecret?: string
-  webhookPort?: number
-  projectMappings?: Array<{ projectPath: string; localRepoPath: string; reviewProfile?: ReviewSkillProfile; reviewModel?: ReviewModelSelection }>
-  /** Override the DSH default model for automated reviews. When absent the global DSH default is used. */
-  reviewModel?: ReviewModelSelection
-  /** Re-run a quick review whenever new commits land on a previously reviewed MR. */
-  autoRereviewOnPush?: boolean
-  /** Bound one automated review agent's turn. */
-  agentTimeoutMs?: number
-  /** Prune Maestro's own review records older than this many days (0 = keep forever). */
-  reviewSessionRetentionDays?: number
   tunnelMode?: 'quick' | 'named'
-  quickTarget?: 'dsh-web' | 'webhook'
   tunnelId?: string
   tunnelCredentialsFile?: string
   tunnelHostname?: string
@@ -53,8 +30,6 @@ export interface MaestroUserConfig {
   /** Telegram Bot API credentials for one-way notifications. */
   telegramBotToken?: string
   telegramChatId?: string
-  /** Also notify this chat when a review finishes. Default false. */
-  telegramReviewNotifications?: boolean
 }
 
 function resolveDshHome(dshHome?: string): string {
@@ -68,10 +43,6 @@ function resolveDshHome(dshHome?: string): string {
  * Machine runtime state (RUNTIME_KEYS) never enters settings — it stays in this
  * package's own sidecar so a settings edit can never silently flip tunnel state.
  */
-export function configStorePath(dshHome?: string): string {
-  return join(resolveDshHome(dshHome), 'dsh-maestro-config', 'settings.json')
-}
-
 function runtimeStatePath(dshHome?: string): string {
   return join(resolveDshHome(dshHome), 'dsh-maestro-remote', 'runtime.json')
 }

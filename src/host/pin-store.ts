@@ -10,16 +10,6 @@ export function pinPath(dshHome?: string): string {
   return join(home, 'dsh-maestro-remote', 'pin')
 }
 
-function legacyPinPath(dshHome?: string): string {
-  const home = dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')
-  return join(home, 'dsh-maestro-remote', 'token')
-}
-
-function legacyLanPinPath(dshHome?: string): string {
-  const home = dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')
-  return join(home, 'dsh-maestro-remote', 'token-lan')
-}
-
 /** LAN PIN lives in its own file so rotating the public PIN cannot invalidate LAN links. */
 export function lanPinPath(dshHome?: string): string {
   const home = dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh')
@@ -38,44 +28,25 @@ async function writePinFile(pin: string, path: string): Promise<string> {
   return pin
 }
 
-/** Current PIN, generating and persisting one when absent or malformed. Migrates legacy `token` file. */
+/** Current PIN, generating and persisting one when absent or malformed. */
 export async function readPin(dshHome?: string): Promise<string> {
   try {
     const existing = (await readFile(pinPath(dshHome), 'utf-8')).trim()
     if (PIN_RE.test(existing)) return existing
-  } catch { /* absent or unreadable — try legacy */ }
-  try {
-    const legacy = (await readFile(legacyPinPath(dshHome), 'utf-8')).trim()
-    if (PIN_RE.test(legacy)) {
-      // migrate to new location for future reads
-      await writePinFile(legacy, pinPath(dshHome))
-      return legacy
-    }
-  } catch { /* legacy absent — generate below */ }
+  } catch { /* absent or unreadable, generate below */ }
   return writePinFile(newPin(), pinPath(dshHome))
-}
-
-export async function writePin(pin: string, dshHome?: string): Promise<string> {
-  return writePinFile(pin, pinPath(dshHome))
 }
 
 export async function rotatePin(dshHome?: string): Promise<string> {
   return writePinFile(newPin(), pinPath(dshHome))
 }
 
-/** Current LAN PIN, generating and persisting one when absent or malformed. Migrates legacy `token-lan` file. */
+/** Current LAN PIN, generating and persisting one when absent or malformed. */
 export async function readLanPin(dshHome?: string): Promise<string> {
   try {
     const existing = (await readFile(lanPinPath(dshHome), 'utf-8')).trim()
     if (PIN_RE.test(existing)) return existing
-  } catch { /* absent — try legacy */ }
-  try {
-    const legacy = (await readFile(legacyLanPinPath(dshHome), 'utf-8')).trim()
-    if (PIN_RE.test(legacy)) {
-      await writePinFile(legacy, lanPinPath(dshHome))
-      return legacy
-    }
-  } catch {}
+  } catch { /* absent or unreadable, generate below */ }
   return writePinFile(newPin(), lanPinPath(dshHome))
 }
 

@@ -68,7 +68,7 @@ export interface RpcDeps {
  * `lanPort` and `lanHost` stay out on purpose — see below.
  */
 const SAVABLE = new Set([
-  'mode', 'quickTarget', 'id', 'credentialsFile', 'hostname',
+  'mode', 'id', 'credentialsFile', 'hostname',
   'proxyPort', 'proxyHost', 'lanPinEnabled', 'pinSessionTtlHours',
 ])
 

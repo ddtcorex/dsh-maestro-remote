@@ -18,7 +18,7 @@ import { REMOTE_CSS } from './remote/styles.js'
 import { registerSettingsNavIcon, SETTINGS_NAV_MARKER } from './settings-nav-icon.js'
 
 /** This package's own channel; the endpoints it serves. */
-export const REMOTE_CHANNEL = '/dsh-maestro-remote'
+const REMOTE_CHANNEL = '/dsh-maestro-remote'
 
 export type RpcCall = (endpoint: string, payload?: unknown) => Promise<any>
 
@@ -31,7 +31,7 @@ function unwrap(res: any): any {
   return res && typeof res === 'object' && 'ok' in res ? (res.ok ? res.value : null) : res
 }
 
-export function makeRpcCall(ctx: any): RpcCall {
+function makeRpcCall(ctx: any): RpcCall {
   return async (endpoint, payload) => {
     const conn = ctx.get?.('connection')
     if (conn?.rpc?.call === undefined) throw new Error('RPC not available')

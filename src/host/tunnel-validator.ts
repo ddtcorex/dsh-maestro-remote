@@ -41,9 +41,6 @@ export const tunnelValidator: DomainValidator = {
     if (v.credentialsFile !== undefined && v.credentialsFile !== null && typeof v.credentialsFile !== 'string') {
       return bad('tunnel.credentialsFile must be a string')
     }
-    if (v.quickTarget !== undefined && v.quickTarget !== null && typeof v.quickTarget !== 'string') {
-      return bad('tunnel.quickTarget must be a string')
-    }
     if (v.proxyHost !== undefined && v.proxyHost !== null && typeof v.proxyHost !== 'string') {
       return bad('tunnel.proxyHost must be a string')
     }

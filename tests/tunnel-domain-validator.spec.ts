@@ -34,7 +34,6 @@ describe('tunnel domain validator', () => {
     expect(
       tunnelValidator.parse({
         mode: 'public',
-        quickTarget: 'tunnel.example.invalid',
         id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
         hostname: 'tunnel.example.invalid',
         credentialsFile: '/srv/secrets/aaaaaaaa-credentials.json',

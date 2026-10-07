@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Removed
+
+- **Stale `quickTarget` setting.** Nothing in the tunnel or proxy read it. The `'webhook'` value, the config field, the validator check and the Settings RPC allow-list entry are gone. The vendored key map still lists the key, so a stored value is simply ignored.
+- **Dead assembler patch candidates.** The patch no longer probes `lib/assembler.js` (the built harness bundles the class into `lib/index.js`) or a path relative to the plugin that never matched a real layout.
+- **Legacy PIN fallback.** The PIN store no longer reads or migrates the old `token` and `token-lan` files. A machine that has only those legacy files and no `pin` / `pin-lan` now gets a freshly generated PIN on first read. Existing `pin` and `pin-lan` files are unaffected, and legacy files are left on disk untouched.
+
 ## [0.5.3] - 2026-10-07
 
 ### Fixed
