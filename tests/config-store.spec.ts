@@ -11,21 +11,21 @@ afterEach(async () => { await rm(home, { recursive: true, force: true }) })
 
 describe('config-store v2 (lib-backed adapter)', () => {
   it('save writes into the shared namespaced store, not the package file', async () => {
-    await saveUserConfig({ gitlabToken: 'tok', tunnelMode: 'named' }, home)
+    await saveUserConfig({ tunnelHostname: 'host.example', tunnelMode: 'named' }, home)
     const raw = JSON.parse(await readFile(join(home, 'dsh-maestro-config', 'settings.json'), 'utf8'))
-    expect(raw.domains.gitlab.token).toBe('tok')
+    expect(raw.domains.tunnel.hostname).toBe('host.example')
     expect(raw.domains.tunnel.mode).toBe('named')
   })
 
   it('load reads the shared store back through the flat view', async () => {
     await saveUserConfig({
-      gitlabBaseUrl: 'https://g',
-      reviewModel: { provider: 'openai', model: 'gpt-x' },
+      tunnelHostname: 'host.example',
+      proxyPort: 4000,
       telegramChatId: '42',
     }, home)
     const cfg = await loadUserConfig(home)
-    expect(cfg.gitlabBaseUrl).toBe('https://g')
-    expect(cfg.reviewModel).toEqual({ provider: 'openai', model: 'gpt-x' })
+    expect(cfg.tunnelHostname).toBe('host.example')
+    expect(cfg.proxyPort).toBe(4000)
     expect(cfg.telegramChatId).toBe('42')
   })
 
@@ -39,11 +39,11 @@ describe('config-store v2 (lib-backed adapter)', () => {
   })
 
   it('save merges without losing sibling keys across domains', async () => {
-    await saveUserConfig({ gitlabBaseUrl: 'https://g', tunnelHostname: 'h' }, home)
-    await saveUserConfig({ gitlabToken: 'late' }, home)
+    await saveUserConfig({ proxyPort: 4000, tunnelHostname: 'h' }, home)
+    await saveUserConfig({ tunnelId: 'late' }, home)
     const cfg = await loadUserConfig(home)
-    expect(cfg.gitlabBaseUrl).toBe('https://g') // sibling survived
-    expect(cfg.gitlabToken).toBe('late')
+    expect(cfg.proxyPort).toBe(4000) // sibling survived
+    expect(cfg.tunnelId).toBe('late')
     expect(cfg.tunnelHostname).toBe('h')
   })
 
