@@ -294,7 +294,8 @@ export const name = 'maestro-tunnel'
 // -- tunnel/proxy still worked, so apply() wasn't stuck, but scheduleStart-
 // upNotification's lazy `ctx.get('maestroNotifier')` came up empty). Read
 // ctx.connection opportunistically instead; see the bounded retry in
-// readToken() for the actual race fix.
+// readToken() for the actual race fix. The service itself is reached through a
+// nested ctx.inject(["connection"]) in apply(), which does not defer apply().
 export const inject = ['webServer']
 
 /**
@@ -327,6 +328,15 @@ export function apply(ctx: Context): void {
   // Refreshed whenever config is loaded so the PIN gate classifies hosts by
   // the hostname the tunnel actually uses.
   let proxyPort = 3081
+  // `connection` reached through a nested inject: on DSH 0.2.x neither
+  // `ctx.connection` nor `ctx.get('connection')` resolves from this row (it
+  // cannot inject it, see the note above `inject`), and a nested inject does
+  // not defer apply() the way a row-level one does.
+  type ConnectionLike = { authenticatedUrl?: (url: string) => string }
+  let connectionService: ConnectionLike | undefined
+  ;(ctx as any).inject?.(['connection'], (connCtx: any) => {
+    connectionService = connCtx.connection
+  })
   /** Local/LAN proxy listener (spec: local-pin-gate); undefined when `lanPort` is unset. */
   let lanProxy: RemoteProxyHandle | undefined
   let lanPort: number | undefined
@@ -374,8 +384,9 @@ export function apply(ctx: Context): void {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const conn =
-          ((ctx as any).connection as { authenticatedUrl?: (url: string) => string } | undefined) ??
-          (ctx.get?.('connection') as { authenticatedUrl?: (url: string) => string } | undefined)
+          connectionService ??
+          ((ctx as any).connection as ConnectionLike | undefined) ??
+          (ctx.get?.('connection') as ConnectionLike | undefined)
         if (conn?.authenticatedUrl !== undefined) {
           const url = conn.authenticatedUrl('http://127.0.0.1:3080')
           const t = new URL(url).searchParams.get('token')
