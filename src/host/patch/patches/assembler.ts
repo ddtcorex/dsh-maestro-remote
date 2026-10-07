@@ -100,7 +100,10 @@ export function resolveAssemblerClass(): AssemblerLike | undefined {
   // source via tsx (cwd == <harness>), so `src/assembler.ts` is the module
   // instance the agent loop uses. The built `lib/` bundles the class into
   // `lib/index.js` (no `lib/assembler.js` ships), and that bundle is reached
-  // through the package name below.
+  // through the package name below. The package-name path is reasoned, not
+  // proven: no published install exists in the live profile, so it has never
+  // been observed to resolve here; the workspace source paths are the ones
+  // that fire in practice.
   const candidates = [
     // Installed package through the caller's require graph (published installs).
     '@deepseek-ai/dsh-llm',
