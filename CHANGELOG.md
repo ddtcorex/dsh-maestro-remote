@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.3] - 2026-10-07
+
+### Fixed
+
+- **RPC rows activate on DSH 0.2.x.** The bundle patch declares `webServer` on the `connection` entry, so rows that call `rpc.handle` no longer fail with `cannot get property "webServer" without inject` and their channels no longer answer 405.
+- **Settings RPC reachable.** The `remote-rpc` row waits for `maestroTunnel`, fixing HTTP 405 on Settings > Maestro Remote.
+- **PIN login works.** The tunnel reads `connection` through a nested inject, so a correct PIN mints the dsh cookie instead of answering 401.
+
 ## [0.5.2] - 2026-10-06
 
 ### Fixed
