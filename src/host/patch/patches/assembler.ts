@@ -10,16 +10,15 @@
  * (dsh-tools keepBlock contract). Feature-detects upstream: if the restored
  * id/name logic is already present, no-ops.
  *
- * The runtime class is reached through several resolution paths: the package
- * name via the caller's require graph, the built `lib/assembler.js` under the
- * harness workspace (published/installed installs), and the source
- * `src/assembler.ts` (source launch via tsx), where `require('<abs>.ts')` yields
- * the same module instance the agent loop uses.
+ * The runtime class is reached through two resolution paths: the package
+ * name via the caller's require graph (published/installed installs), and the
+ * source `src/assembler.ts` under the harness workspace (source launch via
+ * tsx), where `require('<abs>.ts')` yields the same module instance the agent
+ * loop uses.
  */
 
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 
 type AssemblerLike = { prototype: Record<string, unknown> }
 
@@ -88,7 +87,7 @@ export function applyAssemblerRestore(BlockAssemblerLike: AssemblerLike): () => 
 }
 
 /**
- * Locate the runtime `BlockAssembler` class across package-name, built-lib, and
+ * Locate the runtime `BlockAssembler` class across package-name and
  * source-launch resolution paths. The source path matters because the Maestro
  * host runs DSH from its `src/` via tsx, and `require()` of the same `.ts` file
  * returns the exact class instance the agent loop imports.
@@ -96,28 +95,18 @@ export function applyAssemblerRestore(BlockAssemblerLike: AssemblerLike): () => 
  */
 export function resolveAssemblerClass(): AssemblerLike | undefined {
   const req = createRequire(import.meta.url)
-  const base = join(dirname(fileURLToPath(import.meta.url)))
 
   // Harness workspace candidates. The running `dsh web` boots from the harness
-  // source via tsx (cwd == <harness>); the relative form covers the Maestro
-  // plugin checkout (lib/ dir) regardless of working directory. Prefer source
-  // `.ts` over built `lib/.js` so the patched class is the one the loop uses
-  // under source launch.
-  const harness = [
-    '',
-    'deepseek-harness',
-  ]
+  // source via tsx (cwd == <harness>), so `src/assembler.ts` is the module
+  // instance the agent loop uses. The built `lib/` bundles the class into
+  // `lib/index.js` (no `lib/assembler.js` ships), and that bundle is reached
+  // through the package name below.
   const candidates = [
     // Installed package through the caller's require graph (published installs).
     '@deepseek-ai/dsh-llm',
   ]
-  for (const prefix of harness) {
-    for (const file of ['packages/llm/llm/src/assembler.ts', 'packages/llm/llm/lib/assembler.js']) {
-      candidates.push(join(process.cwd(), prefix, file))
-    }
-  }
-  for (const file of ['packages/llm/llm/src/assembler.ts', 'packages/llm/llm/lib/assembler.js']) {
-    candidates.push(join(base, '../../../deepseek-harness', file))
+  for (const prefix of ['', 'deepseek-harness']) {
+    candidates.push(join(process.cwd(), prefix, 'packages/llm/llm/src/assembler.ts'))
   }
   for (const candidate of candidates) {
     try {
