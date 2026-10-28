@@ -10,13 +10,16 @@
  * (dsh-tools keepBlock contract). Feature-detects upstream: if the restored
  * id/name logic is already present, no-ops.
  *
- * The runtime class is reached through two resolution paths: the package
- * name via the caller's require graph (published/installed installs), and the
- * source `src/assembler.ts` under the harness workspace (source launch via
- * tsx), where `require('<abs>.ts')` yields the same module instance the agent
- * loop uses.
+ * The runtime class is reached through three resolution paths, first hit
+ * wins: the package name from the running dsh entry's require graph (packaged
+ * runtime, where a `link:` plugin cannot see the runtime's node_modules), the
+ * package name via this plugin's own require graph, and the source
+ * `src/assembler.ts` under the harness workspace (source launch via tsx). Each
+ * yields the module instance the agent loop uses: `require(esm)` shares the
+ * ESM loader cache, and tsx loads the same `.ts` file.
  */
 
+import { realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
@@ -86,42 +89,61 @@ export function applyAssemblerRestore(BlockAssemblerLike: AssemblerLike): () => 
   }
 }
 
-/**
- * Locate the runtime `BlockAssembler` class across package-name and
- * source-launch resolution paths. The source path matters because the Maestro
- * host runs DSH from its `src/` via tsx, and `require()` of the same `.ts` file
- * returns the exact class instance the agent loop imports.
- * @returns the resolved class, or undefined when no copy resolves.
- */
-export function resolveAssemblerClass(): AssemblerLike | undefined {
-  const req = createRequire(import.meta.url)
+/** A resolved runtime class plus the resolution path that produced it. */
+export interface LocatedAssembler {
+  cls: AssemblerLike
+  via: 'packaged runtime' | 'plugin require graph' | 'source checkout'
+}
 
-  // Harness workspace candidates. The running `dsh web` boots from the harness
-  // source via tsx (cwd == <harness>), so `src/assembler.ts` is the module
-  // instance the agent loop uses. The built `lib/` bundles the class into
-  // `lib/index.js` (no `lib/assembler.js` ships), and that bundle is reached
-  // through the package name below. The package-name path is reasoned, not
-  // proven: no published install exists in the live profile, so it has never
-  // been observed to resolve here; the workspace source paths are the ones
-  // that fire in practice.
-  const candidates = [
-    // Installed package through the caller's require graph (published installs).
-    '@deepseek-ai/dsh-llm',
-  ]
-  for (const prefix of ['', 'deepseek-harness']) {
-    candidates.push(join(process.cwd(), prefix, 'packages/llm/llm/src/assembler.ts'))
+/**
+ * Locate the runtime `BlockAssembler` class across the packaged-runtime,
+ * package-name and source-launch resolution paths.
+ * @param where - the running dsh entry (default `process.argv[1]`) and the cwd
+ *   the source paths are searched under (default `process.cwd()`).
+ * @returns the class and its resolution path, or undefined when none resolves.
+ */
+export function locateAssembler(where: { entry?: string; cwd?: string } = {}): LocatedAssembler | undefined {
+  const cwd = where.cwd ?? process.cwd()
+  const loaders: Array<[LocatedAssembler['via'], () => unknown]> = []
+
+  // Packaged runtime: `bin/dsh` links to `<pkg>/lib/bin.js`, and dsh-llm sits in
+  // that package's node_modules. A source launch runs `bin.ts`, skip it there.
+  const entry = where.entry ?? process.argv[1]
+  if (entry) {
+    let real = entry
+    try { real = realpathSync(entry) } catch { /* keep the given path */ }
+    if (real.endsWith('.js') || real.endsWith('.mjs')) {
+      loaders.push(['packaged runtime', () => createRequire(real)('@deepseek-ai/dsh-llm')])
+    }
   }
-  for (const candidate of candidates) {
+
+  const req = createRequire(import.meta.url)
+  // Installed package through this plugin's require graph (published installs).
+  loaders.push(['plugin require graph', () => req('@deepseek-ai/dsh-llm')])
+  // Source launch via tsx (cwd == <harness> or its workspace parent).
+  for (const prefix of ['', 'deepseek-harness']) {
+    loaders.push(['source checkout', () => req(join(cwd, prefix, 'packages/llm/llm/src/assembler.ts'))])
+  }
+
+  for (const [via, load] of loaders) {
     try {
-      const mod = req(candidate) as { BlockAssembler?: AssemblerLike }
+      const mod = load() as { BlockAssembler?: AssemblerLike }
       if (typeof mod?.BlockAssembler === 'function') {
-        return mod.BlockAssembler
+        return { cls: mod.BlockAssembler, via }
       }
     } catch {
       // try the next resolution path
     }
   }
   return undefined
+}
+
+/**
+ * Locate the runtime `BlockAssembler` class (see {@link locateAssembler}).
+ * @returns the resolved class, or undefined when no copy resolves.
+ */
+export function resolveAssemblerClass(where: { entry?: string; cwd?: string } = {}): AssemblerLike | undefined {
+  return locateAssembler(where)?.cls
 }
 
 /**
@@ -140,12 +162,28 @@ function isDegenerateToolCall(block: { type: string; name?: string; id?: unknown
  * Install the zero-fork BlockAssembler shims (id/name restore + degenerate drop)
  * for the harness runtime. Reversible: disposing restores original methods.
  * @param ctx - the Cordis context (uses only `effect`).
+ * @param opts - resolution inputs and the boot log sink, injectable for tests.
  * @returns the combined disposer when a class resolved, else undefined.
  */
-export function patchAssembler(ctx: { effect: (fn: () => unknown, label?: string) => unknown }): unknown {
+export function patchAssembler(
+  ctx: { effect: (fn: () => unknown, label?: string) => unknown },
+  opts: {
+    where?: { entry?: string; cwd?: string }
+    resolve?: (where?: { entry?: string; cwd?: string }) => LocatedAssembler | undefined
+    log?: (line: string) => void
+  } = {},
+): unknown {
+  // One boot line either way: a restore that silently misses the runtime's
+  // module instance is exactly how this shim went inactive unnoticed.
+  const log = opts.log ?? ((line: string) => { process.stderr.write(line + '\n') })
   return ctx.effect(() => {
-    const BlockAssembler = resolveAssemblerClass()
-    if (!BlockAssembler) return
+    const located = (opts.resolve ?? locateAssembler)(opts.where)
+    if (!located) {
+      log('[maestro-patch] BlockAssembler not found, tool-call id/name restore inactive')
+      return
+    }
+    log(`[maestro-patch] BlockAssembler restore installed via ${located.via}`)
+    const BlockAssembler = located.cls
     const proto = BlockAssembler.prototype
     const disposers: Array<() => void> = []
 
