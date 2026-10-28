@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.1] - 2026-10-28
+
+### Fixed
+
+- **The BlockAssembler restore patches the packaged dsh runtime.** On a packaged install `@deepseek-ai/dsh-llm` lives in the runtime's own node_modules, outside a `link:` plugin's require graph, so the tool-call id/name restore fell through to a checkout source path and patched a module instance the agent loop never uses. It now resolves dsh-llm from the running dsh entry first and logs the path it used at boot (`[maestro-patch] BlockAssembler restore installed via ...`), or warns when no class resolves.
+
 ## [0.6.0] - 2026-10-10
 
 ### Removed
