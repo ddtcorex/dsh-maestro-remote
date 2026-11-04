@@ -1,5 +1,7 @@
 node_modules/
-lib/
+# Anchored to the repo root: a bare lib/ also matches nested directories
+# (scripts/lib/), which silently leaves files there untracked.
+/lib/
 client/login.js
 client/login.css
 .DS_Store
