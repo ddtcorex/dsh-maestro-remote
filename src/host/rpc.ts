@@ -1,10 +1,9 @@
 /**
  * Loopback RPC for the tunnel, proxy and PIN, on this package's own channel.
  *
- * All nine of these used to be served by `dsh-maestro-review` on
- * `/dsh-maestro-review`, where each one delegated straight back to the
- * `maestroTunnel` service this package provides. Endpoint strings did not
- * change, only the channel that carries them, so a client that already knows
+ * These nine are served here, on this package's own channel, by the
+ * `maestroTunnel` service this package provides. Endpoint strings stayed as
+ * they were when the endpoints moved, so a client that already knows
  * `maestro.rotatePin` needs no change beyond its channel.
  *
  * Every answer uses the `RpcResult` envelope. A bare `{ ok: true }` is not a

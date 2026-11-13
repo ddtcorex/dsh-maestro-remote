@@ -10,11 +10,10 @@ export { RPC_CHANNEL };
 /**
  * The tunnel, proxy and PIN endpoints.
  *
- * These nine used to be served by `dsh-maestro-review` on
- * `/dsh-maestro-review`, each delegating straight back to the `maestroTunnel`
- * service the sibling row provides. The stub that used to live here answered a
- * bare `{ ok: true }` with no `value` on a channel no client called; a client
- * reads `res.value`, so that shape answers every field with `undefined`.
+ * These nine are served here by the `maestroTunnel` service the sibling row
+ * provides. The stub that used to live here answered a bare `{ ok: true }` with
+ * no `value` on a channel no client called; a client reads `res.value`, so that
+ * shape answers every field with `undefined`.
  *
  * The tunnel service is read opportunistically rather than injected: declaring
  * it would force this row to wait for the sibling row, and `tunnel.ts` makes
