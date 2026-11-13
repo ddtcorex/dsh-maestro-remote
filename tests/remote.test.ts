@@ -180,9 +180,13 @@ describe('remote login page', () => {
       const css = await get(proxy.port, '/__maestro/login.css', { host: 'public.example.com' });
       if (dshRepo === null) {
         // No DeepSeek Harness checkout in this environment (e.g. CI): the
-        // builder skips and the assets 404 — the native fallback form covers it.
-        expect(js.status).toBe(404);
-        expect(css.status).toBe(404);
+        // builder skips, so a fresh clone 404s and the native fallback form
+        // covers sign-in. A machine that already built the gitignored assets
+        // still serves them, so accept both and reject only an empty body.
+        for (const asset of [js, css]) {
+          expect([200, 404]).toContain(asset.status);
+          if (asset.status === 200) expect(asset.body.length).toBeGreaterThan(0);
+        }
         return;
       }
       expect(js.status).toBe(200);

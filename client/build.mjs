@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { build } from 'esbuild'
+import { skipDecision } from './build-decision.mjs'
 
 const packageRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const require = createRequire(import.meta.url)
@@ -22,12 +23,16 @@ function resolveDshRepo() {
 
 const dshRepo = resolveDshRepo()
 if (dshRepo === null) {
-  // CI and a standalone clone of this repo have no DeepSeek Harness checkout
-  // to bundle from. Skip rather than fail the build: the server-rendered
-  // native PIN form still works without this bundle, so publishing without
-  // it degrades gracefully instead of blank-paging.
-  console.warn(`login bundle: skipping — cannot find the DeepSeek Harness checkout (searched ancestors of ${packageRoot}); set DSH_REPO to build for real`)
-  process.exit(0)
+  // CI and a standalone clone of this repo have no DeepSeek Harness checkout to
+  // bundle the login UI from. The committed client/login.js is what ships in
+  // that case, so a skip is only safe while that file is current. Say what is
+  // being skipped and how to build for real, and fail when the caller requires
+  // a fresh bundle (release builds pass --require).
+  const required = process.argv.includes('--require') || process.env.REQUIRE_LOGIN_BUNDLE === '1'
+  const decision = skipDecision({ packageRoot, required })
+  const write = decision.stream === 'stderr' ? console.error : console.warn
+  write(decision.message)
+  process.exit(decision.exitCode)
 }
 const clientSource = (...parts) => join(dshRepo, 'packages/client', ...parts)
 
