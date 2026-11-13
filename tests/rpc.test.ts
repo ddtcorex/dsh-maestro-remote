@@ -5,11 +5,10 @@ import { join } from 'node:path'
 import { createRpcHandler, RPC_CHANNEL } from '../src/host/rpc.js'
 
 /**
- * These nine endpoints moved here from dsh-maestro-review, which hosted them
- * on `/dsh-maestro-review` while delegating every one of them to this
- * package's own `maestroTunnel` service.
+ * These nine endpoints are served by this package's own `maestroTunnel`
+ * service, on this package's channel.
  *
- * The envelope is the point of the move. Review's stub and its old handlers
+ * The envelope is the point. The stub that used to answer here and its old handlers
  * answered a bare `{ ok: true }` with no `value`, and every client reads
  * `res.value` — so the Settings card rendered an empty form that saved nothing,
  * with no error anywhere.

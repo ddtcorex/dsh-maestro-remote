@@ -2,7 +2,7 @@
   "name": "@ddtcorex/dsh-maestro-remote",
   "private": false,
   "version": "0.6.1",
-  "description": "Maestro remote — tunnel + remote-proxy + PIN + QR for DeepSeek Harness",
+  "description": "Maestro remote \u2014 tunnel + remote-proxy + PIN + QR for DeepSeek Harness",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -35,7 +35,8 @@
     "build:client": "node client/build.mjs",
     "prepublishOnly": "pnpm run build && pnpm run build:client",
     "verify": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "test": "NODE_ENV=test vitest run"
+    "test": "NODE_ENV=test vitest run",
+    "build:client:strict": "node client/build.mjs --require"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
