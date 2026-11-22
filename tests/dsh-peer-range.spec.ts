@@ -23,6 +23,14 @@ const manifest = JSON.parse(readFileSync(resolve(here, '../package.json'), 'utf8
 const NORMALIZED = '^0.1.0-rc.6 || >=0.1.1-rc.0 <0.3.0-0'
 const FORBIDDEN_PEER_PREFIX = '@deepseek-ai/dsh'
 
+/**
+ * The cordis build the running host ships. Cordis is a runtime peer, not a `@deepseek-ai/dsh*`
+ * package, so the filter below and the profile row gate both miss it: a stale range is
+ * genuinely unsatisfied yet never denied, and it rots silently until a registry install
+ * reports unmet peers. Pin it to the build the host actually runs.
+ */
+const CORDIS_PEER_RANGE = '~4.1.0 || ~4.2.0-alpha.1'
+
 interface Violation { name: string; range: string; reasons: string[] }
 
 function dshPeers(): Array<[string, string]> {
@@ -57,6 +65,10 @@ describe('dsh peer ranges', () => {
   it('reports no structural violations', () => {
     const found = violations()
     expect(found.map(v => `${v.name}: ${v.reasons.join(', ')}`)).toEqual([])
+  })
+
+  it('declares the cordis peer at the build the host ships', () => {
+    expect(manifest.peerDependencies?.['@deepseek-ai/cordis']).toBe(CORDIS_PEER_RANGE)
   })
 
   it('flags an exact pin (the 2026-09-23 incident)', () => {

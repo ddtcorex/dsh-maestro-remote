@@ -10,6 +10,15 @@
  * (dsh-tools keepBlock contract). Feature-detects upstream: if the restored
  * id/name logic is already present, no-ops.
  *
+ * Still load-bearing on 0.2.2-rc.5, measured 2026-11-22 against the packaged
+ * `dsh-llm/lib/types/assembler.js`: the deltas-only path now guards the name
+ * (`if (chunk.name)` leaves the partial alone), but it assigns the id
+ * unconditionally, and the real wire shape ends with a `block-end` whose block
+ * carries `id: ''` and `name: ''`, which `assemble` returns verbatim once
+ * `partial.block` is set. So BOTH losses are live, and narrowing this to the id
+ * alone would reintroduce the `unknown tool ""` failure.
+ * `tests/patch/assembler-patch.test.ts` pins it with the captured stream shape.
+ *
  * The runtime class is reached through three resolution paths, first hit
  * wins: the package name from the running dsh entry's require graph (packaged
  * runtime, where a `link:` plugin cannot see the runtime's node_modules), the
