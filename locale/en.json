@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Maestro remote",
+    "description": "Reaches this dsh web from another device through a Cloudflare quick or named tunnel, with a LAN proxy behind it and a PIN with QR provisioning at the gate. The tunnel starts off and is driven from its own Settings section. While it runs, anyone holding the URL and the PIN can drive this harness, so stop it when you are done."
+  }
+}
