@@ -2,7 +2,8 @@
   "name": "@ddtcorex/dsh-maestro-remote",
   "private": false,
   "version": "0.6.1",
-  "description": "Maestro remote \u2014 tunnel + remote-proxy + PIN + QR for DeepSeek Harness",
+  "description": "Maestro remote: tunnel, remote proxy, PIN and QR for DeepSeek Harness",
+  "icon": "assets/icon.svg",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -16,6 +17,7 @@
   "types": "./lib/index.d.ts",
   "exports": {
     ".": "./lib/index.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json",
     "./lib/*": "./lib/*",
     "./client": {
@@ -28,7 +30,9 @@
     "src",
     "client",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "assets",
+    "locale"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json && node scripts/build-client.mjs",
